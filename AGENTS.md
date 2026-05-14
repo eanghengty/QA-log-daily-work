@@ -1,8 +1,8 @@
-# QA Tracker - Agent Guide
+# Telecom Site Tracker - Agent Guide
 
-A client-only QA self-update tracker. A single QA person tracks 5-20 sites, logs daily
-free-form reports, issues, and confirmations with file proof, then generates an email
-draft from each report. There is no backend. All data lives in IndexedDB.
+A client-only telecom site progress tracker. A field coordinator tracks physical telecom
+sites, logs daily progress updates, blockers, approvals / sign-offs, and field proof, then
+generates an email draft from each update. There is no backend. All data lives in IndexedDB.
 
 ## Stack
 
@@ -16,9 +16,9 @@ draft from each report. There is no backend. All data lives in IndexedDB.
 
 ```bash
 npm install      # install deps
-npm run dev      # dev server (Vite)
+npm run dev      # dev server (Vite) on http://localhost:5185
 npm run build    # production build - use this to verify
-npm run preview  # preview production build
+npm run preview  # preview production build on http://localhost:5185
 ```
 
 On Windows PowerShell, `npm` may be blocked by script policy. Use `npm.cmd run build`
@@ -30,25 +30,27 @@ or `npm.cmd run dev` when that happens.
 
 - `index.js` defines the Dexie schema and `initDb()`.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`.
-- The app starts empty. Do not add demo, dummy, placeholder, or hardcoded QA records.
+- The app starts empty. Do not add demo, dummy, placeholder, or hardcoded site records.
+- Internal table/field names still use `reports`, `issues`, and `confirms`, but the user-facing
+  domain language is telecom progress updates, blockers, and approvals.
 - `initDb()` only removes the old untouched 8-site demo seed if it is detected in an
   existing browser IndexedDB. It should not delete user-created data.
 
 ### Reactive Store (`src/composables/`)
 
 - `useLiveQuery.js` wraps `Dexie.liveQuery` in Vue refs and auto-unsubscribes.
-- `useSites.js` exposes sites with derived `pending` and `confirms` counts, plus site CRUD.
+- `useSites.js` exposes sites with derived open-blocker and approval counts, plus site CRUD.
 - `useReports.js`, `useIssues.js`, and `useConfirms.js` expose per-site CRUD plus reactive
   single-record helpers for edit views.
-- Issue and confirmation codes are generated per site by incrementing the highest existing
+- Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
 - `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
 - `useTrackerStats.js` derives overview totals from live IndexedDB data.
 
 ### Email (`src/lib/email.js`)
 
-- `buildEmailSubject()` and `buildEmailBody()` compose report email content from the report,
-  linked issues, linked confirmations, and settings toggles.
+- `buildEmailSubject()` and `buildEmailBody()` compose site progress email content from the
+  update, linked blockers, linked approvals, and settings toggles.
 - `generateEml()` builds an RFC-822 `multipart/mixed` message with `X-Unsent: 1` so Outlook
   opens the `.eml` as an editable, sendable draft.
 - `downloadEml()` and `copyToClipboard()` are the output helpers.
@@ -58,10 +60,10 @@ or `npm.cmd run dev` when that happens.
 - `src/views/` contains one view per route:
   - `OverviewView`
   - `SiteDashboardView`
-  - `NewReportView`
+  - `NewReportView` (progress update form)
   - `EmailDraftView`
-  - `IssueLogView`
-  - `ConfirmLogView`
+  - `IssueLogView` (blocker form)
+  - `ConfirmLogView` (approval form)
   - `AddSiteView` (also used for site settings)
 - `src/components/` contains shared UI:
   - `Sidebar`
@@ -73,12 +75,17 @@ or `npm.cmd run dev` when that happens.
 
 ## Conventions
 
-- **No dummy data**: forms and the database start empty. Do not seed demo sites, demo reports,
-  placeholder issues, placeholder confirmations, fake users, or hardcoded stats.
+- **No dummy data**: forms and the database start empty. Do not seed demo sites, demo updates,
+  placeholder blockers, placeholder approvals, fake users, or hardcoded stats.
+- **Telecom wording**: user-facing copy should describe physical telecom sites, site progress,
+  field proof, blockers / risks, and approvals / sign-offs. Avoid website, coding, test, QA,
+  staging, or software-release language in UI copy.
 - **Reactive reads**: components should read through `use*` composables backed by
   `useLiveQuery`. Avoid direct `db.*` reads in components.
 - **Async single records**: use `useSiteById()`, `useReportById()`, `useIssueById()`, and
   `useConfirmById()` for edit/detail views. Do not call async `get*ById()` inside `computed`.
+- **Site fields**: internal `url` stores the user-facing `Location / area` value. Do not label
+  it as a website URL.
 - **Styling**: keep the hand-drawn wireframe look. Design tokens are CSS custom properties in
   `src/assets/main.css`; reusable primitives include `.box`, `.chip`, `.btn`, `.field`,
   `.label`, and `.squiggle`.
@@ -86,10 +93,10 @@ or `npm.cmd run dev` when that happens.
   with Material Symbols names instead.
 - **Forms**: form state starts empty. UI examples belong in labels or helper text, not dummy
   `ref()` values.
-- **Confirmations**: saving a confirmation requires at least one attachment.
+- **Approvals**: saving an approval requires at least one attachment.
 - **IDs**: `sites` use slug strings; `reports`, `issues`, `confirms`, and `attachments`
   auto-increment.
-- **Attachments**: store file proof through `AttachmentDropzone` / `useAttachments`; persist
+- **Attachments**: store field proof through `AttachmentDropzone` / `useAttachments`; persist
   attachment ID arrays as plain arrays, not Vue reactive proxies.
 
 ## Current Routes
@@ -98,13 +105,13 @@ or `npm.cmd run dev` when that happens.
 - `/site/new` - add site
 - `/site/:id` - site dashboard
 - `/site/:id/settings` - edit/delete site
-- `/site/:id/report/new` - new report
-- `/site/:id/report/:reportId/edit` - edit report
+- `/site/:id/report/new` - new progress update
+- `/site/:id/report/:reportId/edit` - edit progress update
 - `/site/:id/report/:reportId/email` - email draft
-- `/site/:id/issue/new` - new issue
-- `/site/:id/issue/:issueId/edit` - edit issue
-- `/site/:id/confirm/new` - new confirmation
-- `/site/:id/confirm/:confirmId/edit` - edit confirmation
+- `/site/:id/issue/new` - new blocker
+- `/site/:id/issue/:issueId/edit` - edit blocker
+- `/site/:id/confirm/new` - new approval
+- `/site/:id/confirm/:confirmId/edit` - edit approval
 
 ## Verification Checklist
 
@@ -112,13 +119,14 @@ After changes, run `npm.cmd run build` on Windows or `npm run build` elsewhere.
 
 Then check the app in the browser:
 
-1. Fresh/clean IndexedDB overview shows 0 sites and an empty-state add-site action.
-2. Add a site, then confirm it appears in the sidebar and overview.
-3. Open the site dashboard; settings, new report, log issue, and save confirmation actions open.
-4. New report -> save -> appears in history -> reload -> still there.
-5. New report -> save & generate email -> opens the report email draft.
+1. Fresh/clean IndexedDB overview shows 0 telecom sites and an empty-state add-site action.
+2. Add a site with a location / area, then confirm it appears in the sidebar and overview.
+3. Open the site dashboard; settings, new update, log blocker, and save approval actions open.
+4. New progress update -> save -> appears in history -> reload -> still there.
+5. New progress update -> save & generate email -> opens the update email draft.
 6. Email draft toggles update the body; copy and `.eml` download buttons work.
-7. Log an issue -> site pending badge increments; clicking the issue opens edit mode.
-8. Confirmation save is blocked at 0 attachments and allowed at 1 or more attachments.
+7. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
+8. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
 9. Site settings can update site fields and delete the site with the two-click confirm action.
-10. No emoji glyphs, demo QA records, hardcoded site stats, or placeholder QA content remain.
+10. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+    website/software QA wording remains in user-facing copy.

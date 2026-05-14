@@ -19,8 +19,8 @@ const { data: site } = useSiteById(siteId)
 const { data: issue } = useIssueById(issueId.value || 0)
 
 const form = ref(emptyForm())
-const pageTitle = computed(() => (isEdit.value ? 'Edit issue' : 'Log an issue'))
-const pageSubtitle = computed(() => `${site.value?.name || siteId} - cross-check finding`)
+const pageTitle = computed(() => (isEdit.value ? 'Edit blocker' : 'Log a blocker'))
+const pageSubtitle = computed(() => `${site.value?.name || siteId} - field risk or delay`)
 
 watch(
   issue,
@@ -93,14 +93,14 @@ function emptyForm() {
       <button v-if="!isEdit" type="button" class="btn" @click="save({ addAnother: true })">Save & add another</button>
       <button type="button" class="btn btn-primary" @click="save()">
         <MaterialIcon name="save" />
-        Save issue
+        Save blocker
       </button>
     </Topbar>
 
     <div class="row gap-5 p-5 grow" style="overflow: auto">
       <div class="col gap-4 grow" style="flex: 2 1 0%">
         <div class="col gap-2">
-          <div class="label">Title</div>
+          <div class="label">Blocker / risk</div>
           <input v-model="form.title" class="field" style="font-size: 14px; font-weight: 600; padding: 12px 14px" />
         </div>
 
@@ -123,23 +123,23 @@ function emptyForm() {
             </div>
           </div>
           <div class="col gap-2" style="flex: 1 1 0%">
-            <div class="label">Area</div>
+            <div class="label">Work area</div>
             <input v-model="form.area" class="field" />
           </div>
           <div class="col gap-2" style="flex: 1 1 0%">
-            <div class="label">Environment</div>
+            <div class="label">Site zone / crew</div>
             <input v-model="form.environment" class="field" />
           </div>
         </div>
 
         <div class="col gap-2">
-          <div class="label">Steps to reproduce</div>
+          <div class="label">Details / impact</div>
           <textarea v-model="form.steps" class="field col gap-2" style="font-family: 'Patrick Hand', cursive; font-size: 15px; padding: 14px; min-height: 140px; resize: none" />
         </div>
 
         <div class="col gap-2">
           <div class="between">
-            <div class="label">Evidence - screenshots & files</div>
+            <div class="label">Field proof - photos & files</div>
             <span class="tiny">drag in, paste, or click</span>
           </div>
           <AttachmentDropzone v-model="form.attachmentIds" />

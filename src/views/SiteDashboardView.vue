@@ -36,7 +36,7 @@ const pendingSummary = computed(() =>
     : 'none open'
 )
 const latestReportLabel = computed(() =>
-  latestReport.value ? `last: ${formatDate(latestReport.value.date)}` : 'no reports yet'
+  latestReport.value ? `last: ${formatDate(latestReport.value.date)}` : 'no updates yet'
 )
 const cadenceLabel = computed(() => {
   const dates = sortedReports.value
@@ -129,16 +129,16 @@ function formatDate(dateString) {
       </button>
       <button type="button" class="btn btn-primary" @click="newReport">
         <MaterialIcon name="add" />
-        New report
+        New update
       </button>
     </Topbar>
 
     <div class="col gap-5 p-5 grow" style="overflow-y: auto">
       <div class="row gap-3">
-        <StatCard label="Issues pending" :value="pendingIssues?.length || 0" accent="var(--issue)" :sub="pendingSummary" />
-        <StatCard label="Confirmations" :value="confirms?.length || 0" accent="var(--confirm)" sub="all time" />
-        <StatCard label="Reports this month" :value="reportsThisMonth" :sub="latestReportLabel" />
-        <StatCard label="Avg. cadence" :value="cadenceLabel" sub="between reports" />
+        <StatCard label="Open blockers" :value="pendingIssues?.length || 0" accent="var(--issue)" :sub="pendingSummary" />
+        <StatCard label="Approvals" :value="confirms?.length || 0" accent="var(--confirm)" sub="all time" />
+        <StatCard label="Progress updates" :value="reportsThisMonth" :sub="latestReportLabel" />
+        <StatCard label="Avg. cadence" :value="cadenceLabel" sub="between updates" />
       </div>
 
       <div class="col gap-3">
@@ -149,38 +149,38 @@ function formatDate(dateString) {
               <div class="box center icon-box">
                 <MaterialIcon name="edit_note" />
               </div>
-              <div class="title-md">New report</div>
+              <div class="title-md">New progress update</div>
             </div>
-            <div class="small">free-form notes</div>
+            <div class="small">site progress notes</div>
           </button>
           <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="logIssue">
             <div class="row items-center gap-2">
               <div class="box center icon-box" style="border-color: var(--line-2)">
                 <MaterialIcon name="flag" />
               </div>
-              <div class="title-md">Log issue</div>
+              <div class="title-md">Log blocker</div>
             </div>
-            <div class="small">cross-check finding</div>
+            <div class="small">risk or delay</div>
           </button>
           <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="saveConfirm">
             <div class="row items-center gap-2">
               <div class="box center icon-box" style="border-color: var(--line-2)">
                 <MaterialIcon name="verified" />
               </div>
-              <div class="title-md">Save confirmation</div>
+              <div class="title-md">Save approval</div>
             </div>
-            <div class="small">capture approval</div>
+            <div class="small">capture sign-off</div>
           </button>
         </div>
       </div>
 
       <div class="col gap-3">
         <div class="between">
-          <div class="title-lg">Report history</div>
+          <div class="title-lg">Progress history</div>
           <span class="small">viewing {{ sortedReports.length }}</span>
         </div>
         <div class="box p-4 col">
-          <div v-if="sortedReports.length === 0" class="small">No reports saved yet.</div>
+          <div v-if="sortedReports.length === 0" class="small">No progress updates saved yet.</div>
           <div
             v-for="report in sortedReports.slice(0, 4)"
             :key="report.id"
@@ -212,14 +212,14 @@ function formatDate(dateString) {
       <div class="row gap-4">
         <div class="col gap-3 grow" style="flex: 1 1 0%">
           <div class="between">
-            <div class="title-lg">Issue log <span class="small" style="margin-left: 8px">({{ pendingIssues?.length || 0 }} pending)</span></div>
+            <div class="title-lg">Blocker log <span class="small" style="margin-left: 8px">({{ pendingIssues?.length || 0 }} open)</span></div>
             <button type="button" class="btn btn-ghost" @click="logIssue">
               <MaterialIcon name="add" />
-              Log issue
+              Log blocker
             </button>
           </div>
           <div class="box p-4 col">
-            <div v-if="!issues?.length" class="small">No issues logged yet.</div>
+            <div v-if="!issues?.length" class="small">No blockers logged yet.</div>
             <button
               v-for="issue in issues?.slice(0, 4)"
               :key="issue.id"
@@ -230,7 +230,7 @@ function formatDate(dateString) {
             >
               <span class="chip chip-issue mono" style="min-width: 48px; justify-content: center">{{ issue.code }}</span>
               <div class="col grow">
-                <div style="font-size: 13px; font-weight: 500">{{ issue.title || 'Untitled issue' }}</div>
+                <div style="font-size: 13px; font-weight: 500">{{ issue.title || 'Untitled blocker' }}</div>
                 <div class="tiny">{{ issue.date }} - {{ issue.attachmentIds?.length || 0 }} attached - priority {{ issue.priority }}</div>
               </div>
               <span class="pill" :class="issue.status === 'open' ? 'chip-issue' : 'chip-confirm'" style="border: 1.2px solid currentColor">{{ issue.status }}</span>
@@ -239,14 +239,14 @@ function formatDate(dateString) {
         </div>
         <div class="col gap-3 grow" style="flex: 1 1 0%">
           <div class="between">
-            <div class="title-lg">Confirmations <span class="small" style="margin-left: 8px">({{ confirms?.length || 0 }})</span></div>
+            <div class="title-lg">Approvals <span class="small" style="margin-left: 8px">({{ confirms?.length || 0 }})</span></div>
             <button type="button" class="btn btn-ghost" @click="saveConfirm">
               <MaterialIcon name="add" />
-              Save confirm
+              Save approval
             </button>
           </div>
           <div class="box p-4 col">
-            <div v-if="!confirms?.length" class="small">No confirmations captured yet.</div>
+            <div v-if="!confirms?.length" class="small">No approvals captured yet.</div>
             <button
               v-for="confirm in confirms?.slice(0, 4)"
               :key="confirm.id"
@@ -257,7 +257,7 @@ function formatDate(dateString) {
             >
               <span class="chip chip-confirm mono" style="min-width: 48px; justify-content: center">{{ confirm.code }}</span>
               <div class="col grow">
-                <div style="font-size: 13px; font-weight: 500">{{ confirm.title || 'Untitled confirmation' }}</div>
+                <div style="font-size: 13px; font-weight: 500">{{ confirm.title || 'Untitled approval' }}</div>
                 <div class="tiny">{{ confirm.date }} - from {{ confirm.confirmedBy || 'unknown' }} - {{ confirm.attachmentIds?.length || 0 }} attached</div>
               </div>
               <span class="chip">

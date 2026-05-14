@@ -20,8 +20,8 @@ const { data: confirm } = useConfirmById(confirmId.value || 0)
 
 const form = ref(emptyForm())
 const hasAttachments = computed(() => form.value.attachmentIds.length > 0)
-const pageTitle = computed(() => (isEdit.value ? 'Edit confirmation' : 'Save a confirmation'))
-const pageSubtitle = computed(() => `${site.value?.name || siteId} - proof capture`)
+const pageTitle = computed(() => (isEdit.value ? 'Edit approval' : 'Save an approval'))
+const pageSubtitle = computed(() => `${site.value?.name || siteId} - field sign-off`)
 
 watch(
   confirm,
@@ -86,14 +86,14 @@ function emptyForm() {
       <button type="button" class="btn btn-ghost" @click="goBack">Cancel</button>
       <button type="button" class="btn btn-primary" @click="save">
         <MaterialIcon name="save" />
-        Save confirmation
+        Save approval
       </button>
     </Topbar>
 
     <div class="row gap-5 p-5 grow" style="overflow: auto">
       <div class="col gap-4 grow" style="flex: 2 1 0%">
         <div class="col gap-2">
-          <div class="label">What was confirmed?</div>
+          <div class="label">What was approved?</div>
           <input v-model="form.title" class="field" style="font-size: 14px; font-weight: 600; padding: 12px 14px" />
         </div>
 
@@ -116,7 +116,7 @@ function emptyForm() {
             </div>
           </div>
           <div class="col gap-2" style="flex: 1 1 0%">
-            <div class="label">Confirmed by</div>
+            <div class="label">Approved by</div>
             <input v-model="form.confirmedBy" class="field" />
           </div>
         </div>
@@ -129,7 +129,7 @@ function emptyForm() {
         <div class="col gap-2">
           <div class="between">
             <div class="label">Proof - attach the evidence</div>
-            <span class="tiny">screenshots, emails, files - required</span>
+            <span class="tiny">photos, emails, files - required</span>
           </div>
           <AttachmentDropzone v-model="form.attachmentIds" />
         </div>
@@ -137,8 +137,8 @@ function emptyForm() {
 
       <div class="col gap-3" style="width: 280px">
         <div class="box p-4 col gap-2">
-          <div class="label">Why confirmations matter</div>
-          <div style="font-size: 12px; color: var(--ink-2); line-height: 1.45">When someone signs off, capture the proof beside the note so the report has a clear evidence trail.</div>
+          <div class="label">Why approvals matter</div>
+          <div style="font-size: 12px; color: var(--ink-2); line-height: 1.45">When a supervisor, client, or crew lead signs off, capture the proof beside the note so the site history has a clear evidence trail.</div>
         </div>
       </div>
     </div>

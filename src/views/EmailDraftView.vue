@@ -68,13 +68,13 @@ async function downloadDraft() {
   const blob = await generateEml({
     to: '',
     cc: '',
-    from: 'qa-tracker@local',
+    from: 'site-tracker@local',
     subject: subject.value,
     htmlBody: bodyHtml.value,
     attachments,
   })
 
-  downloadEml(blob, `${site.value.id || siteId}-qa-${report.value.date}.eml`)
+  downloadEml(blob, `${site.value.id || siteId}-progress-${report.value.date}.eml`)
   status.value = 'Draft downloaded'
 }
 </script>
@@ -108,15 +108,15 @@ async function downloadDraft() {
           <div class="label">Include</div>
           <label class="row items-center gap-2 small">
             <input v-model="settings.includeIssues" type="checkbox" />
-            Pending issues
+            Open blockers
           </label>
           <label class="row items-center gap-2 small">
             <input v-model="settings.includeConfirms" type="checkbox" />
-            Confirmations
+            Approvals
           </label>
           <label class="row items-center gap-2 small">
             <input v-model="settings.attachScreenshots" type="checkbox" />
-            Report attachments
+            Field attachments
           </label>
         </div>
         <div v-if="status" class="chip chip-confirm">

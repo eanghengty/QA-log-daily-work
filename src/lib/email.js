@@ -14,15 +14,15 @@ export async function buildEmailBody(report, site, settings = {}) {
     : []
 
   let html = `<p>Hi team,</p>
-<p>Quick QA update for <strong>${escapeHtml(site.name)}</strong> - ${formatDate(report.date)}.</p>`
+<p>Quick telecom site progress update for <strong>${escapeHtml(site.name)}</strong> - ${formatDate(report.date)}.</p>`
 
-  html += `<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">What I tested</p>
+  html += `<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
 <ul style="margin:4px 0 0 18px; padding:0;">
-  <li>${escapeHtml(report.notes?.split('\n')[0] || 'QA notes captured')}</li>
+  <li>${escapeHtml(report.notes?.split('\n')[0] || 'Site progress notes captured')}</li>
 </ul>`
 
   if (includeIssues && issues.length > 0) {
-    html += `<p style="margin:14px 0 4px; font-weight:600; color:#c2701c;">Pending issues (${issues.length} new)</p>
+    html += `<p style="margin:14px 0 4px; font-weight:600; color:#c2701c;">Open blockers (${issues.length} new)</p>
 <ul style="margin:4px 0 0 18px; padding:0;">`
     issues.forEach((issue) => {
       html += `<li><strong>${escapeHtml(issue.code)}</strong> - ${escapeHtml(issue.title)} <em>(${escapeHtml(issue.priority)})</em></li>`
@@ -31,7 +31,7 @@ export async function buildEmailBody(report, site, settings = {}) {
   }
 
   if (includeConfirms && confirms.length > 0) {
-    html += `<p style="margin:14px 0 4px; font-weight:600; color:#4f7a4a;">Confirmations captured (${confirms.length})</p>
+    html += `<p style="margin:14px 0 4px; font-weight:600; color:#4f7a4a;">Approvals captured (${confirms.length})</p>
 <ul style="margin:4px 0 0 18px; padding:0;">`
     confirms.forEach((confirm) => {
       html += `<li><strong>${escapeHtml(confirm.code)}</strong> - ${escapeHtml(confirm.title)}</li>`
@@ -39,16 +39,16 @@ export async function buildEmailBody(report, site, settings = {}) {
     html += '</ul>'
   }
 
-  html += `<p style="margin:14px 0 0;">Full notes attached. Happy to walk through anything.</p>
-<p style="margin:10px 0 0;">- QA Tracker</p>`
+  html += `<p style="margin:14px 0 0;">Full site notes attached. Happy to walk through anything.</p>
+<p style="margin:10px 0 0;">- Site Progress Tracker</p>`
 
   return html
 }
 
 export function buildEmailSubject(site, report, issues = []) {
   const highPriorityCount = issues.filter((issue) => issue.priority === 'high').length
-  const suffix = highPriorityCount > 0 ? ` (${highPriorityCount} high-priority issues)` : ''
-  return `[QA - ${site.code || site.id}] Daily update - ${formatDate(report.date)}${suffix}`
+  const suffix = highPriorityCount > 0 ? ` (${highPriorityCount} high-priority blockers)` : ''
+  return `[SITE - ${site.code || site.id}] Progress update - ${formatDate(report.date)}${suffix}`
 }
 
 function formatDate(dateStr) {

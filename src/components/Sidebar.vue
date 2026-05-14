@@ -33,7 +33,7 @@ function goToHome() {
           style="width: 28px; height: 28px; border-radius: 6px; background: var(--ink); color: var(--paper); font-weight: 700; font-size: 13px; cursor: pointer"
           @click="goToHome"
         >
-          Q
+          T
         </button>
         <div class="col">
           <button
@@ -41,9 +41,9 @@ function goToHome() {
             style="background: transparent; border: 0; padding: 0; font-weight: 700; font-size: 14px; letter-spacing: 0; cursor: pointer; text-align: left"
             @click="goToHome"
           >
-            QA-LOG
+            SITE-LOG
           </button>
-          <div class="tiny">self-update tracker</div>
+          <div class="tiny">telecom progress tracker</div>
         </div>
       </div>
     </div>
@@ -73,10 +73,10 @@ function goToHome() {
 
     <div class="p-4" style="border-top: 1.5px solid var(--line)">
       <div class="row items-center gap-2">
-        <div class="box center" style="width: 24px; height: 24px; border-radius: 999px; background: var(--paper-2); font-size: 11px">QA</div>
+        <div class="box center" style="width: 24px; height: 24px; border-radius: 999px; background: var(--paper-2); font-size: 11px">FT</div>
         <div class="col">
-          <div style="font-size: 12px; font-weight: 600">QA user</div>
-          <div class="tiny">local tracker</div>
+          <div style="font-size: 12px; font-weight: 600">Field tracker</div>
+          <div class="tiny">local site log</div>
         </div>
       </div>
     </div>

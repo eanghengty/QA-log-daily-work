@@ -25,7 +25,7 @@ const { data: report } = useReportById(reportId.value || 0)
 const today = new Date().toISOString().split('T')[0]
 const form = ref(emptyForm())
 
-const pageTitle = computed(() => (isEdit.value ? 'Edit QA report' : 'New QA report'))
+const pageTitle = computed(() => (isEdit.value ? 'Edit progress update' : 'New progress update'))
 const pageSubtitle = computed(() => `${site.value?.name || siteId} - ${form.value.date || today}`)
 
 watch(
@@ -124,7 +124,7 @@ function currentTime() {
   <div class="col grow">
     <Topbar :title="pageTitle" :subtitle="pageSubtitle">
       <button type="button" class="btn btn-ghost" @click="goBack">Cancel</button>
-      <button type="button" class="btn" @click="save()">Save report</button>
+      <button type="button" class="btn" @click="save()">Save update</button>
       <button type="button" class="btn btn-primary" @click="save({ generateEmail: true })">
         Save & generate email
         <MaterialIcon name="arrow_forward" />
@@ -149,8 +149,8 @@ function currentTime() {
 
         <div class="col gap-2 grow">
           <div class="between">
-            <div class="label">Notes - what did you test today?</div>
-            <div class="tiny">free-form</div>
+            <div class="label">Progress notes - what happened on site?</div>
+            <div class="tiny">work completed, delays, next steps</div>
           </div>
           <textarea
             v-model="form.notes"
@@ -161,7 +161,7 @@ function currentTime() {
 
         <div class="row gap-3">
           <div class="box-dash p-3 col gap-2 grow">
-            <div class="label">Link issues found</div>
+            <div class="label">Link blockers / risks</div>
             <div class="row gap-2" style="flex-wrap: wrap">
               <button
                 v-for="issue in issues?.slice(0, 4)"
@@ -181,7 +181,7 @@ function currentTime() {
             </div>
           </div>
           <div class="box-dash p-3 col gap-2 grow">
-            <div class="label">Link confirmations</div>
+            <div class="label">Link approvals / sign-offs</div>
             <div class="row gap-2" style="flex-wrap: wrap">
               <button
                 v-for="confirm in confirms?.slice(0, 4)"
@@ -203,7 +203,7 @@ function currentTime() {
         </div>
 
         <div class="col gap-2">
-          <div class="label">Attachments (optional)</div>
+          <div class="label">Field proof (optional)</div>
           <AttachmentDropzone v-model="form.attachmentIds" />
         </div>
       </div>
@@ -217,11 +217,11 @@ function currentTime() {
           </div>
           <div class="row items-center gap-2" style="font-size: 12px">
             <MaterialIcon name="flag" :size="16" />
-            linked issues stay attached
+            linked blockers stay attached
           </div>
           <div class="row items-center gap-2" style="font-size: 12px">
             <MaterialIcon name="timeline" :size="16" />
-            report appears in history
+            update appears in history
           </div>
         </div>
       </div>

@@ -32,7 +32,7 @@ watch(
 
 async function save() {
   if (!form.value.id || !form.value.name) {
-    alert('Site ID and name are required')
+    alert('Site ID and site name are required')
     return
   }
 
@@ -101,17 +101,17 @@ function emptyForm() {
       </div>
 
       <div class="col gap-2">
-        <div class="label">Name</div>
+        <div class="label">Site name</div>
         <input v-model="form.name" class="field" />
       </div>
 
       <div class="col gap-2">
-        <div class="label">Code</div>
+        <div class="label">Short code</div>
         <input v-model="form.code" class="field" />
       </div>
 
       <div class="col gap-2">
-        <div class="label">URL</div>
+        <div class="label">Location / area</div>
         <input v-model="form.url" class="field" />
       </div>
 
@@ -122,7 +122,7 @@ function emptyForm() {
 
       <div v-if="isEdit" class="box-dash p-3 col gap-2" style="margin-top: 12px">
         <div class="label">Remove site</div>
-        <div class="small">Deletes this site and its reports, issues, confirmations, and email settings.</div>
+        <div class="small">Deletes this site and its progress updates, blockers, approvals, and email settings.</div>
         <button
           type="button"
           class="btn"

@@ -26,7 +26,7 @@ const siteRows = computed(() =>
 
     return {
       ...site,
-      lastReportLabel: lastReport ? formatDate(lastReport.date) : 'No reports',
+      lastReportLabel: lastReport ? formatDate(lastReport.date) : 'No updates',
       statusLabel: getStatusLabel(site.pending),
     }
   })
@@ -35,7 +35,7 @@ const siteRows = computed(() =>
 const subtitle = computed(() => {
   const count = siteRows.value.length
   const label = count === 1 ? 'site tracked' : 'sites tracked'
-  return `${count} ${label} - ${reportsThisWeek.value} reports this week`
+  return `${count} ${label} - ${reportsThisWeek.value} updates this week`
 })
 
 function goToSite(siteId) {
@@ -51,7 +51,7 @@ function newReport(siteId) {
 }
 
 function exportWeek() {
-  const header = ['Site', 'URL', 'Last report', 'Pending issues', 'Confirmations', 'Status']
+  const header = ['Site', 'Location / area', 'Last update', 'Open blockers', 'Approvals', 'Status']
   const rows = siteRows.value.map((site) => [
     site.name,
     site.url || '',
@@ -65,7 +65,7 @@ function exportWeek() {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `qa-week-${new Date().toISOString().slice(0, 10)}.csv`
+  link.download = `site-progress-week-${new Date().toISOString().slice(0, 10)}.csv`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -75,16 +75,16 @@ function compareReportsDesc(a, b) {
 }
 
 function formatDate(dateString) {
-  if (!dateString) return 'No reports'
+  if (!dateString) return 'No updates'
   const date = new Date(dateString)
-  if (Number.isNaN(date.getTime())) return 'No reports'
+  if (Number.isNaN(date.getTime())) return 'No updates'
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date)
 }
 
 function getStatusLabel(pending) {
-  if (!pending) return 'healthy'
+  if (!pending) return 'on track'
   if (pending >= 5) return 'blocked'
-  return 'flagged'
+  return 'watching'
 }
 
 function csvCell(value) {
@@ -110,14 +110,14 @@ function csvCell(value) {
       <div class="row gap-3">
         <StatCard label="Sites tracked" :value="siteRows.length || 0" />
         <StatCard
-          label="Issues pending"
+          label="Open blockers"
           :value="pendingTotal"
           accent="var(--issue)"
           :sub="`across ${siteRows.filter((site) => site.pending > 0).length} sites`"
         />
-        <StatCard label="Confirmations" :value="confirmsTotal" accent="var(--confirm)" sub="all time" />
+        <StatCard label="Approvals" :value="confirmsTotal" accent="var(--confirm)" sub="all time" />
         <StatCard
-          label="Reports this week"
+          label="Updates this week"
           :value="reportsThisWeek"
           :sub="`${sitesUpdatedThisWeek} sites updated`"
         />
@@ -126,9 +126,9 @@ function csvCell(value) {
       <div class="box col" style="overflow: hidden">
         <div class="row" style="padding: 10px 16px; background: var(--paper-2); border-bottom: 1.5px solid var(--line)">
           <div class="label" style="flex: 2 1 0%">Site</div>
-          <div class="label" style="flex: 1 1 0%">Last report</div>
-          <div class="label" style="flex: 1 1 0%">Pending issues</div>
-          <div class="label" style="flex: 1 1 0%">Confirmations</div>
+          <div class="label" style="flex: 1 1 0%">Last update</div>
+          <div class="label" style="flex: 1 1 0%">Open blockers</div>
+          <div class="label" style="flex: 1 1 0%">Approvals</div>
           <div class="label" style="flex: 1 1 0%">Status</div>
           <div class="label" style="width: 110px">Quick</div>
         </div>
@@ -192,7 +192,7 @@ function csvCell(value) {
               @click.stop="newReport(site.id)"
             >
               <MaterialIcon name="note_add" :size="14" />
-              Report
+              Update
             </button>
           </div>
         </div>
