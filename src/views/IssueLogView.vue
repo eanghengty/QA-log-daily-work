@@ -1,0 +1,170 @@
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useSites } from '../composables/useSites.js'
+import { useIssues } from '../composables/useIssues.js'
+import Topbar from '../components/Topbar.vue'
+import AttachmentDropzone from '../components/AttachmentDropzone.vue'
+import MaterialIcon from '../components/MaterialIcon.vue'
+
+const route = useRoute()
+const router = useRouter()
+const siteId = route.params.id
+const issueId = computed(() => route.params.issueId)
+const isEdit = computed(() => Boolean(issueId.value))
+
+const { useSiteById } = useSites()
+const { addIssue, updateIssue, useIssueById } = useIssues(siteId)
+const { data: site } = useSiteById(siteId)
+const { data: issue } = useIssueById(issueId.value || 0)
+
+const form = ref(emptyForm())
+const pageTitle = computed(() => (isEdit.value ? 'Edit issue' : 'Log an issue'))
+const pageSubtitle = computed(() => `${site.value?.name || siteId} - cross-check finding`)
+
+watch(
+  issue,
+  (value) => {
+    if (!value) return
+    form.value = {
+      title: value.title || '',
+      priority: value.priority || 'high',
+      area: value.area || '',
+      environment: value.environment || '',
+      steps: value.steps || '',
+      status: value.status || 'open',
+      attachmentIds: [...(value.attachmentIds || [])],
+    }
+  },
+  { immediate: true }
+)
+
+async function save(options = {}) {
+  const payload = {
+    siteId,
+    title: form.value.title,
+    priority: form.value.priority,
+    area: form.value.area,
+    environment: form.value.environment,
+    steps: form.value.steps,
+    status: form.value.status,
+    reportId: null,
+    attachmentIds: [...form.value.attachmentIds],
+    date: new Date().toISOString().split('T')[0],
+  }
+
+  if (isEdit.value) {
+    await updateIssue(Number(issueId.value), payload)
+    router.push(`/site/${siteId}`)
+    return
+  }
+
+  await addIssue(payload)
+
+  if (options.addAnother) {
+    form.value = emptyForm()
+    return
+  }
+
+  router.push(`/site/${siteId}`)
+}
+
+function goBack() {
+  router.push(`/site/${siteId}`)
+}
+
+function emptyForm() {
+  return {
+    title: '',
+    priority: 'high',
+    area: '',
+    environment: '',
+    steps: '',
+    status: 'open',
+    attachmentIds: [],
+  }
+}
+</script>
+
+<template>
+  <div class="col grow">
+    <Topbar :title="pageTitle" :subtitle="pageSubtitle">
+      <button type="button" class="btn btn-ghost" @click="goBack">Cancel</button>
+      <button v-if="!isEdit" type="button" class="btn" @click="save({ addAnother: true })">Save & add another</button>
+      <button type="button" class="btn btn-primary" @click="save()">
+        <MaterialIcon name="save" />
+        Save issue
+      </button>
+    </Topbar>
+
+    <div class="row gap-5 p-5 grow" style="overflow: auto">
+      <div class="col gap-4 grow" style="flex: 2 1 0%">
+        <div class="col gap-2">
+          <div class="label">Title</div>
+          <input v-model="form.title" class="field" style="font-size: 14px; font-weight: 600; padding: 12px 14px" />
+        </div>
+
+        <div class="row gap-3">
+          <div class="col gap-2" style="flex: 1 1 0%">
+            <div class="label">Priority</div>
+            <div class="row gap-2">
+              <button type="button" class="chip" :class="{ 'chip-pending': form.priority === 'high' }" @click="form.priority = 'high'">
+                high
+                <MaterialIcon v-if="form.priority === 'high'" name="radio_button_checked" :size="14" />
+              </button>
+              <button type="button" class="chip" :class="{ 'chip-pending': form.priority === 'med' }" @click="form.priority = 'med'">
+                med
+                <MaterialIcon v-if="form.priority === 'med'" name="radio_button_checked" :size="14" />
+              </button>
+              <button type="button" class="chip" :class="{ 'chip-pending': form.priority === 'low' }" @click="form.priority = 'low'">
+                low
+                <MaterialIcon v-if="form.priority === 'low'" name="radio_button_checked" :size="14" />
+              </button>
+            </div>
+          </div>
+          <div class="col gap-2" style="flex: 1 1 0%">
+            <div class="label">Area</div>
+            <input v-model="form.area" class="field" />
+          </div>
+          <div class="col gap-2" style="flex: 1 1 0%">
+            <div class="label">Environment</div>
+            <input v-model="form.environment" class="field" />
+          </div>
+        </div>
+
+        <div class="col gap-2">
+          <div class="label">Steps to reproduce</div>
+          <textarea v-model="form.steps" class="field col gap-2" style="font-family: 'Patrick Hand', cursive; font-size: 15px; padding: 14px; min-height: 140px; resize: none" />
+        </div>
+
+        <div class="col gap-2">
+          <div class="between">
+            <div class="label">Evidence - screenshots & files</div>
+            <span class="tiny">drag in, paste, or click</span>
+          </div>
+          <AttachmentDropzone v-model="form.attachmentIds" />
+        </div>
+      </div>
+
+      <div class="col gap-3" style="width: 280px">
+        <div class="box p-4 col gap-3">
+          <div class="label">Status</div>
+          <div class="row gap-2" style="flex-wrap: wrap">
+            <button type="button" class="chip" :class="{ 'chip-issue': form.status === 'open' }" @click="form.status = 'open'">
+              open
+              <MaterialIcon v-if="form.status === 'open'" name="radio_button_checked" :size="14" />
+            </button>
+            <button type="button" class="chip" :class="{ 'chip-issue': form.status === 'in review' }" @click="form.status = 'in review'">
+              in review
+              <MaterialIcon v-if="form.status === 'in review'" name="radio_button_checked" :size="14" />
+            </button>
+            <button type="button" class="chip" :class="{ 'chip-confirm': form.status === 'fixed' }" @click="form.status = 'fixed'">
+              fixed
+              <MaterialIcon v-if="form.status === 'fixed'" name="radio_button_checked" :size="14" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

@@ -1,0 +1,146 @@
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useSites } from '../composables/useSites.js'
+import { useConfirms } from '../composables/useConfirms.js'
+import Topbar from '../components/Topbar.vue'
+import AttachmentDropzone from '../components/AttachmentDropzone.vue'
+import MaterialIcon from '../components/MaterialIcon.vue'
+
+const route = useRoute()
+const router = useRouter()
+const siteId = route.params.id
+const confirmId = computed(() => route.params.confirmId)
+const isEdit = computed(() => Boolean(confirmId.value))
+
+const { useSiteById } = useSites()
+const { addConfirm, updateConfirm, useConfirmById } = useConfirms(siteId)
+const { data: site } = useSiteById(siteId)
+const { data: confirm } = useConfirmById(confirmId.value || 0)
+
+const form = ref(emptyForm())
+const hasAttachments = computed(() => form.value.attachmentIds.length > 0)
+const pageTitle = computed(() => (isEdit.value ? 'Edit confirmation' : 'Save a confirmation'))
+const pageSubtitle = computed(() => `${site.value?.name || siteId} - proof capture`)
+
+watch(
+  confirm,
+  (value) => {
+    if (!value) return
+    form.value = {
+      title: value.title || '',
+      source: value.source || 'Email',
+      confirmedBy: value.confirmedBy || '',
+      notes: value.notes || '',
+      attachmentIds: [...(value.attachmentIds || [])],
+    }
+  },
+  { immediate: true }
+)
+
+async function save() {
+  if (!hasAttachments.value) {
+    alert('At least one proof file is required')
+    return
+  }
+
+  const payload = {
+    siteId,
+    title: form.value.title,
+    source: form.value.source,
+    confirmedBy: form.value.confirmedBy,
+    notes: form.value.notes,
+    reportId: null,
+    resolvesIssueId: null,
+    attachmentIds: [...form.value.attachmentIds],
+    date: new Date().toISOString().split('T')[0],
+  }
+
+  if (isEdit.value) {
+    await updateConfirm(Number(confirmId.value), payload)
+  } else {
+    await addConfirm(payload)
+  }
+
+  router.push(`/site/${siteId}`)
+}
+
+function goBack() {
+  router.push(`/site/${siteId}`)
+}
+
+function emptyForm() {
+  return {
+    title: '',
+    source: 'Email',
+    confirmedBy: '',
+    notes: '',
+    attachmentIds: [],
+  }
+}
+</script>
+
+<template>
+  <div class="col grow">
+    <Topbar :title="pageTitle" :subtitle="pageSubtitle">
+      <button type="button" class="btn btn-ghost" @click="goBack">Cancel</button>
+      <button type="button" class="btn btn-primary" @click="save">
+        <MaterialIcon name="save" />
+        Save confirmation
+      </button>
+    </Topbar>
+
+    <div class="row gap-5 p-5 grow" style="overflow: auto">
+      <div class="col gap-4 grow" style="flex: 2 1 0%">
+        <div class="col gap-2">
+          <div class="label">What was confirmed?</div>
+          <input v-model="form.title" class="field" style="font-size: 14px; font-weight: 600; padding: 12px 14px" />
+        </div>
+
+        <div class="row gap-3">
+          <div class="col gap-2" style="flex: 1 1 0%">
+            <div class="label">Source</div>
+            <div class="row gap-2">
+              <button type="button" class="chip" :class="{ 'chip-confirm': form.source === 'Email' }" @click="form.source = 'Email'">
+                Email
+                <MaterialIcon v-if="form.source === 'Email'" name="radio_button_checked" :size="14" />
+              </button>
+              <button type="button" class="chip" :class="{ 'chip-confirm': form.source === 'Slack' }" @click="form.source = 'Slack'">
+                Slack
+                <MaterialIcon v-if="form.source === 'Slack'" name="radio_button_checked" :size="14" />
+              </button>
+              <button type="button" class="chip" :class="{ 'chip-confirm': form.source === 'Meeting' }" @click="form.source = 'Meeting'">
+                Meeting
+                <MaterialIcon v-if="form.source === 'Meeting'" name="radio_button_checked" :size="14" />
+              </button>
+            </div>
+          </div>
+          <div class="col gap-2" style="flex: 1 1 0%">
+            <div class="label">Confirmed by</div>
+            <input v-model="form.confirmedBy" class="field" />
+          </div>
+        </div>
+
+        <div class="col gap-2">
+          <div class="label">Notes / context</div>
+          <textarea v-model="form.notes" class="field" style="font-family: 'Patrick Hand', cursive; font-size: 15px; padding: 14px; min-height: 90px; resize: none" />
+        </div>
+
+        <div class="col gap-2">
+          <div class="between">
+            <div class="label">Proof - attach the evidence</div>
+            <span class="tiny">screenshots, emails, files - required</span>
+          </div>
+          <AttachmentDropzone v-model="form.attachmentIds" />
+        </div>
+      </div>
+
+      <div class="col gap-3" style="width: 280px">
+        <div class="box p-4 col gap-2">
+          <div class="label">Why confirmations matter</div>
+          <div style="font-size: 12px; color: var(--ink-2); line-height: 1.45">When someone signs off, capture the proof beside the note so the report has a clear evidence trail.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

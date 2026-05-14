@@ -1,0 +1,205 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,400,0,0&family=Patrick+Hand&family=Kalam:wght@400;700&family=JetBrains+Mono:wght@400;600&family=Work+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* ── Design tokens ──────────────────────────────────────────── */
+:root {
+  --ink:         #1a1a1a;
+  --ink-2:       #4a4a4a;
+  --ink-3:       #8a8a8a;
+  --paper:       #fafaf7;
+  --paper-2:     #f1f0ea;
+  --line:        #d9d6cd;
+  --line-2:      #b6b2a6;
+  --issue:       #c2701c;
+  --issue-bg:    #fbe9d2;
+  --confirm:     #4f7a4a;
+  --confirm-bg:  #e0ecdb;
+  --pending:     #b94a3b;
+  --highlight:   #fff2a8;
+}
+
+html, body {
+  background: #ecebe5;
+  margin: 0;
+  font-family: 'Work Sans', system-ui, sans-serif;
+  color: var(--ink);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+/* ── Typography helpers ─────────────────────────────────────── */
+.hand  { font-family: 'Patrick Hand', 'Kalam', cursive; }
+.mono  { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.scribble { font-family: 'Kalam', cursive; color: var(--pending); }
+
+.material-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'liga';
+  flex: 0 0 auto;
+}
+
+.icon-box {
+  width: 30px;
+  height: 30px;
+}
+
+/* ── Box primitives ─────────────────────────────────────────── */
+.wf {
+  width: 100%; height: 100%;
+  box-sizing: border-box; overflow: hidden;
+  font-family: 'Work Sans', system-ui, sans-serif;
+  color: var(--ink); background: var(--paper);
+}
+
+.box {
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  border-radius: 6px;
+}
+.box-soft {
+  border: 1.5px solid var(--line-2);
+  background: var(--paper);
+  border-radius: 6px;
+}
+.box-dash {
+  border: 1.5px dashed var(--line-2);
+  background: transparent;
+  border-radius: 6px;
+}
+
+/* ── Chips ──────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  border: 1.2px solid var(--ink); border-radius: 999px;
+  font-size: 11px; background: var(--paper);
+}
+.chip-issue   { background: var(--issue-bg);   border-color: var(--issue);   color: #7a4810; }
+.chip-confirm { background: var(--confirm-bg); border-color: var(--confirm); color: #2f4a2c; }
+.chip-pending { background: #fde0dc;           border-color: var(--pending); color: #6e1d12; }
+
+/* ── Pills ──────────────────────────────────────────────────── */
+.pill {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border: 1.5px solid var(--ink); border-radius: 6px;
+  background: var(--paper); font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+.btn-primary { background: var(--ink); color: var(--paper); }
+.btn-ghost   { border-style: dashed; color: var(--ink-2); }
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+/* ── Form field ─────────────────────────────────────────────── */
+.field {
+  border: 1.5px solid var(--line-2); border-radius: 6px;
+  padding: 8px 10px; font-size: 12px;
+  color: var(--ink-2); background: #fff;
+  font-family: 'Work Sans', system-ui, sans-serif;
+}
+.field:focus { outline: none; border-color: var(--ink); }
+
+/* ── Labels / text helpers ──────────────────────────────────── */
+.label {
+  font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 600;
+}
+.small { font-size: 11px; color: var(--ink-3); }
+.tiny  { font-size: 10px; color: var(--ink-3); }
+.title-xl { font-size: 22px; font-weight: 700; letter-spacing: 0; }
+.title-lg { font-size: 16px; font-weight: 700; }
+.title-md { font-size: 13px; font-weight: 600; }
+
+/* ── Dividers & decorations ─────────────────────────────────── */
+.divider  { height: 1.5px; background: var(--line); border-radius: 2px; }
+.squiggle {
+  height: 8px; width: 100%; border-radius: 4px;
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--line) 4px 5px);
+}
+.placeholder-line       { height: 8px; background: var(--line);   border-radius: 3px; }
+.placeholder-line.dark  { background: var(--line-2); }
+.placeholder-line.thin  { height: 6px; }
+.img-slot {
+  background: repeating-linear-gradient(45deg, #efeee8 0 8px, #e6e4dc 8px 16px);
+  border: 1.5px dashed var(--line-2); border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-3); font-family: 'JetBrains Mono', monospace; font-size: 11px;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────── */
+.sidebar {
+  width: 220px; min-width: 220px;
+  background: var(--paper-2);
+  border-right: 1.5px solid var(--line);
+  display: flex; flex-direction: column;
+  height: 100vh; overflow: hidden;
+}
+.site-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; font-size: 13px; color: var(--ink-2);
+  border-left: 3px solid transparent; cursor: pointer;
+  border-top: 0; border-right: 0; border-bottom: 0;
+  background: transparent; font: inherit; text-align: left; width: 100%;
+}
+.site-row:hover { background: rgba(0,0,0,.03); }
+.site-row.active {
+  background: var(--paper); border-left-color: var(--ink);
+  color: var(--ink); font-weight: 600;
+}
+.badge-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  min-width: 18px; text-align: center; padding: 1px 5px;
+  border-radius: 4px; background: var(--issue-bg); color: #7a4810;
+  border: 1px solid var(--issue);
+}
+.badge-zero { background: transparent; color: var(--ink-3); border-color: var(--line); }
+
+/* ── Layout helpers ─────────────────────────────────────────── */
+.row     { display: flex; }
+.col     { display: flex; flex-direction: column; }
+.grow    { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.center  { display: flex; align-items: center; justify-content: center; }
+.between { display: flex; align-items: center; justify-content: space-between; }
+.items-center { align-items: center; }
+
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.gap-5 { gap: 20px; }
+.gap-6 { gap: 24px; }
+
+.p-3 { padding: 12px; }
+.p-4 { padding: 16px; }
+.p-5 { padding: 20px; }
+.p-6 { padding: 24px; }
+.px-5 { padding-left: 20px; padding-right: 20px; }
+.py-3 { padding-top: 12px; padding-bottom: 12px; }
+
+h1, h2, h3, h4, h5 { margin: 0; }
