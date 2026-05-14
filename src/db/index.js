@@ -11,6 +11,15 @@ db.version(1).stores({
   emailSettings: 'siteId',
 })
 
+db.version(2).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }

@@ -23,7 +23,8 @@ watch(
     form.value = {
       id: value.id || '',
       name: value.name || '',
-      code: value.code || '',
+      scope: value.scope || '',
+      comment: value.comment || '',
       url: value.url || '',
     }
   },
@@ -39,7 +40,8 @@ async function save() {
   if (isEdit.value) {
     await updateSite(siteId.value, {
       name: form.value.name,
-      code: form.value.code,
+      scope: form.value.scope,
+      comment: form.value.comment,
       url: form.value.url,
     })
     router.push(`/site/${siteId.value}`)
@@ -49,7 +51,8 @@ async function save() {
   await addSite({
     id: form.value.id.trim(),
     name: form.value.name.trim(),
-    code: form.value.code.trim(),
+    scope: form.value.scope.trim(),
+    comment: form.value.comment.trim(),
     url: form.value.url.trim(),
   })
   router.push('/')
@@ -75,7 +78,8 @@ function emptyForm() {
   return {
     id: '',
     name: '',
-    code: '',
+    scope: '',
+    comment: '',
     url: '',
   }
 }
@@ -106,8 +110,13 @@ function emptyForm() {
       </div>
 
       <div class="col gap-2">
-        <div class="label">Short code</div>
-        <input v-model="form.code" class="field" />
+        <div class="label">Scope</div>
+        <input v-model="form.scope" class="field" placeholder="e.g. Full build / Upgrade / Audit" />
+      </div>
+
+      <div class="col gap-2">
+        <div class="label">Comment</div>
+        <textarea v-model="form.comment" class="field" rows="3" placeholder="Any notes about this site" style="resize: vertical" />
       </div>
 
       <div class="col gap-2">

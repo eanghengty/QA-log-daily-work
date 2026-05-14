@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useIssues } from '../composables/useIssues.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
+import AttachmentViewer from '../components/AttachmentViewer.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
 const route = useRoute()
@@ -19,6 +20,7 @@ const { data: site } = useSiteById(siteId)
 const { data: issue } = useIssueById(issueId.value || 0)
 
 const form = ref(emptyForm())
+const showViewer = ref(false)
 const pageTitle = computed(() => (isEdit.value ? 'Edit blocker' : 'Log a blocker'))
 const pageSubtitle = computed(() => `${site.value?.name || siteId} - field risk or delay`)
 
@@ -140,7 +142,19 @@ function emptyForm() {
         <div class="col gap-2">
           <div class="between">
             <div class="label">Field proof - photos & files</div>
-            <span class="tiny">drag in, paste, or click</span>
+            <div class="row gap-2" style="align-items: center">
+              <button
+                v-if="form.attachmentIds.length > 0"
+                type="button"
+                class="btn btn-ghost"
+                style="padding: 2px 8px; font-size: 12px"
+                @click="showViewer = true"
+              >
+                <MaterialIcon name="visibility" :size="15" />
+                View ({{ form.attachmentIds.length }})
+              </button>
+              <span class="tiny">drag in, paste, or click</span>
+            </div>
           </div>
           <AttachmentDropzone v-model="form.attachmentIds" />
         </div>
@@ -166,5 +180,7 @@ function emptyForm() {
         </div>
       </div>
     </div>
+
+    <AttachmentViewer v-model="showViewer" :attachment-ids="form.attachmentIds" />
   </div>
 </template>

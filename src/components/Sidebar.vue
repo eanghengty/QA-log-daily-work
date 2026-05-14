@@ -1,21 +1,23 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import MaterialIcon from './MaterialIcon.vue'
+import AddSiteModal from './AddSiteModal.vue'
 
 const { sites } = useSites()
 const route = useRoute()
 const router = useRouter()
 
 const activeId = computed(() => route.params.id || null)
+const showAddSite = ref(false)
 
 function goToSite(id) {
   router.push(`/site/${id}`)
 }
 
 function goToAddSite() {
-  router.push('/site/new')
+  showAddSite.value = true
 }
 
 function goToHome() {
@@ -70,6 +72,8 @@ function goToHome() {
         </span>
       </button>
     </div>
+
+    <AddSiteModal v-model="showAddSite" />
 
     <div class="p-4" style="border-top: 1.5px solid var(--line)">
       <div class="row items-center gap-2">

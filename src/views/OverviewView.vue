@@ -1,13 +1,15 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useTrackerStats } from '../composables/useTrackerStats.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
+import AddSiteModal from '../components/AddSiteModal.vue'
 
 const router = useRouter()
+const showAddSite = ref(false)
 const { sites } = useSites()
 const {
   reports,
@@ -43,7 +45,7 @@ function goToSite(siteId) {
 }
 
 function addSite() {
-  router.push('/site/new')
+  showAddSite.value = true
 }
 
 function newReport(siteId) {
@@ -198,5 +200,7 @@ function csvCell(value) {
         </div>
       </div>
     </div>
+
+    <AddSiteModal v-model="showAddSite" />
   </div>
 </template>
