@@ -162,6 +162,7 @@ textarea {
 .placeholder-line.dark  { background: var(--line-2); }
 .placeholder-line.thin  { height: 6px; }
 .img-slot {
+  position: relative;
   background: repeating-linear-gradient(45deg, #efeee8 0 8px, #e6e4dc 8px 16px);
   border: 1.5px dashed var(--line-2); border-radius: 6px;
   display: flex; align-items: center; justify-content: center;

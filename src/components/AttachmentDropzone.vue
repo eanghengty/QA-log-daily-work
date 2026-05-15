@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useAttachments } from '../composables/useAttachments.js'
 import MaterialIcon from './MaterialIcon.vue'
 
@@ -17,6 +17,52 @@ const isUploading = ref(false)
 const pendingPasteFile = ref(null)
 const pendingPasteName = ref('')
 const pasteNameInputRef = ref(null)
+const clipboardHasImage = ref(false)
+
+async function checkClipboard() {
+  if (!navigator.clipboard?.read) return
+  try {
+    const items = await navigator.clipboard.read()
+    clipboardHasImage.value = items.some((item) =>
+      item.types.some((t) => t.startsWith('image/'))
+    )
+  } catch {
+    clipboardHasImage.value = false
+  }
+}
+
+async function pasteFromClipboard() {
+  if (!navigator.clipboard?.read) return
+  try {
+    const items = await navigator.clipboard.read()
+    for (const item of items) {
+      const imageType = item.types.find((t) => t.startsWith('image/'))
+      if (imageType) {
+        const blob = await item.getType(imageType)
+        const ext = imageType.split('/')[1] || 'png'
+        const file = new File([blob], `screenshot.${ext}`, { type: imageType })
+        pendingPasteFile.value = file
+        pendingPasteName.value = file.name
+        clipboardHasImage.value = false
+        nextTick(() => {
+          pasteNameInputRef.value?.focus()
+          pasteNameInputRef.value?.select()
+        })
+        return
+      }
+    }
+  } catch {
+    // clipboard read denied — user will use Ctrl+V instead
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('focus', checkClipboard)
+  checkClipboard()
+})
+onUnmounted(() => {
+  window.removeEventListener('focus', checkClipboard)
+})
 
 async function handleFiles(files) {
   if (!files.length) return
@@ -55,6 +101,7 @@ function handlePaste(event) {
       const ext = item.type.split('/')[1] || 'png'
       pendingPasteFile.value = file
       pendingPasteName.value = `screenshot.${ext}`
+      clipboardHasImage.value = false
       nextTick(() => {
         pasteNameInputRef.value?.focus()
         pasteNameInputRef.value?.select()
@@ -127,6 +174,15 @@ function removeAttachment(id) {
         <MaterialIcon name="upload_file" :size="18" />
         drop file or image
       </template>
+      <button
+        v-if="clipboardHasImage && !isUploading"
+        type="button"
+        class="clipboard-pill"
+        @click.stop="pasteFromClipboard"
+      >
+        <MaterialIcon name="content_paste" :size="13" />
+        Paste image
+      </button>
     </div>
     <input ref="fileInputRef" type="file" multiple hidden @change="handleInputChange" />
 
@@ -188,5 +244,23 @@ function removeAttachment(id) {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.clipboard-pill {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--confirm-bg);
+  color: var(--confirm);
+  border: 1px solid var(--confirm);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
 }
 </style>
