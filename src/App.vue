@@ -6,6 +6,6 @@ import Sidebar from './components/Sidebar.vue'
 <template>
   <div class="wf row">
     <Sidebar />
-    <RouterView />
+    <RouterView :key="$route.fullPath" />
   </div>
 </template>

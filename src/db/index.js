@@ -20,6 +20,30 @@ db.version(2).stores({
   emailSettings: 'siteId',
 })
 
+db.version(3).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+})
+
+db.version(4).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+}).upgrade(async (tx) => {
+  const existing = await tx.table('scopes').count()
+  if (existing === 0) {
+    await tx.table('scopes').bulkAdd([{ name: 'Macro' }])
+  }
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }

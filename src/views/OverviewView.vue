@@ -7,9 +7,11 @@ import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 import AddSiteModal from '../components/AddSiteModal.vue'
+import { exportBackup, importBackup } from '../lib/backup.js'
 
 const router = useRouter()
 const showAddSite = ref(false)
+const restoreStatus = ref('')
 const { sites } = useSites()
 const {
   reports,
@@ -53,7 +55,7 @@ function newReport(siteId) {
 }
 
 function exportWeek() {
-  const header = ['Site', 'Location / area', 'Last update', 'Open blockers', 'Approvals', 'Status']
+  const header = ['Site', 'Location / area', 'Last update', 'Open blockers', 'Confirmations', 'Status']
   const rows = siteRows.value.map((site) => [
     site.name,
     site.url || '',
@@ -93,6 +95,35 @@ function csvCell(value) {
   const text = String(value ?? '')
   return `"${text.replaceAll('"', '""')}"`
 }
+
+async function backup() {
+  await exportBackup()
+}
+
+function triggerRestore() {
+  document.getElementById('restore-file-input').click()
+}
+
+async function handleRestoreFile(event) {
+  const file = event.target.files[0]
+  if (!file) return
+  event.target.value = ''
+
+  const confirmed = window.confirm(
+    'This will replace ALL existing data with the backup. This cannot be undone. Continue?',
+  )
+  if (!confirmed) return
+
+  try {
+    const text = await file.text()
+    await importBackup(text)
+    restoreStatus.value = 'Restore complete'
+    setTimeout(() => { restoreStatus.value = '' }, 3000)
+  } catch (error) {
+    restoreStatus.value = `Restore failed: ${error.message}`
+    setTimeout(() => { restoreStatus.value = '' }, 5000)
+  }
+}
 </script>
 
 <template>
@@ -101,6 +132,14 @@ function csvCell(value) {
       <button type="button" class="btn btn-ghost" @click="exportWeek">
         <MaterialIcon name="download" />
         Export week
+      </button>
+      <button type="button" class="btn btn-ghost" @click="backup">
+        <MaterialIcon name="backup" />
+        Backup
+      </button>
+      <button type="button" class="btn btn-ghost" @click="triggerRestore">
+        <MaterialIcon name="restore" />
+        Restore
       </button>
       <button type="button" class="btn btn-primary" @click="addSite">
         <MaterialIcon name="add" />
@@ -117,7 +156,7 @@ function csvCell(value) {
           accent="var(--issue)"
           :sub="`across ${siteRows.filter((site) => site.pending > 0).length} sites`"
         />
-        <StatCard label="Approvals" :value="confirmsTotal" accent="var(--confirm)" sub="all time" />
+        <StatCard label="Confirmations" :value="confirmsTotal" accent="var(--confirm)" sub="all time" />
         <StatCard
           label="Updates this week"
           :value="reportsThisWeek"
@@ -130,7 +169,7 @@ function csvCell(value) {
           <div class="label" style="flex: 2 1 0%">Site</div>
           <div class="label" style="flex: 1 1 0%">Last update</div>
           <div class="label" style="flex: 1 1 0%">Open blockers</div>
-          <div class="label" style="flex: 1 1 0%">Approvals</div>
+          <div class="label" style="flex: 1 1 0%">Confirmations</div>
           <div class="label" style="flex: 1 1 0%">Status</div>
           <div class="label" style="width: 110px">Quick</div>
         </div>
@@ -202,5 +241,23 @@ function csvCell(value) {
     </div>
 
     <AddSiteModal v-model="showAddSite" />
+
+    <input
+      id="restore-file-input"
+      type="file"
+      accept=".json"
+      style="display: none"
+      @change="handleRestoreFile"
+    />
+
+    <div
+      v-if="restoreStatus"
+      class="chip"
+      :class="restoreStatus.startsWith('Restore failed') ? 'chip-issue' : 'chip-confirm'"
+      style="position: fixed; bottom: 20px; right: 20px; z-index: 100; padding: 8px 14px"
+    >
+      <MaterialIcon :name="restoreStatus.startsWith('Restore failed') ? 'error' : 'check_circle'" :size="14" />
+      {{ restoreStatus }}
+    </div>
   </div>
 </template>

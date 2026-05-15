@@ -1,10 +1,7 @@
 import { db } from '../db/index.js'
 
 export async function buildEmailBody(report, site, settings = {}) {
-  const {
-    includeIssues = true,
-    includeConfirms = true,
-  } = settings
+  const { includeIssues = true, includeConfirms = true } = settings
 
   const issues = includeIssues
     ? (await db.issues.bulkGet(report.linkedIssueIds || [])).filter(Boolean)
@@ -13,16 +10,17 @@ export async function buildEmailBody(report, site, settings = {}) {
     ? (await db.confirms.bulkGet(report.linkedConfirmIds || [])).filter(Boolean)
     : []
 
-  let html = `<p>Hi team,</p>
-<p>Quick telecom site progress update for <strong>${escapeHtml(site.name)}</strong> - ${formatDate(report.date)}.</p>`
-
-  html += `<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
+  const noteLines = (report.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const noteItems = noteLines.length
+    ? noteLines.map((l) => `  <li>${escapeHtml(l)}</li>`).join('\n')
+    : `  <li>Site progress notes captured</li>`
+  let html = `<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
 <ul style="margin:4px 0 0 18px; padding:0;">
-  <li>${escapeHtml(report.notes?.split('\n')[0] || 'Site progress notes captured')}</li>
+${noteItems}
 </ul>`
 
   if (includeIssues && issues.length > 0) {
-    html += `<p style="margin:14px 0 4px; font-weight:600; color:#c2701c;">Open blockers (${issues.length} new)</p>
+    html += `<p style="margin:14px 0 4px; font-weight:600; color:#c2701c;">Open blockers (${issues.length})</p>
 <ul style="margin:4px 0 0 18px; padding:0;">`
     issues.forEach((issue) => {
       html += `<li><strong>${escapeHtml(issue.code)}</strong> - ${escapeHtml(issue.title)} <em>(${escapeHtml(issue.priority)})</em></li>`
@@ -31,7 +29,7 @@ export async function buildEmailBody(report, site, settings = {}) {
   }
 
   if (includeConfirms && confirms.length > 0) {
-    html += `<p style="margin:14px 0 4px; font-weight:600; color:#4f7a4a;">Approvals captured (${confirms.length})</p>
+    html += `<p style="margin:14px 0 4px; font-weight:600; color:#4f7a4a;">Confirmations (${confirms.length})</p>
 <ul style="margin:4px 0 0 18px; padding:0;">`
     confirms.forEach((confirm) => {
       html += `<li><strong>${escapeHtml(confirm.code)}</strong> - ${escapeHtml(confirm.title)}</li>`
@@ -39,49 +37,11 @@ export async function buildEmailBody(report, site, settings = {}) {
     html += '</ul>'
   }
 
-  html += `<p style="margin:14px 0 0;">Full site notes attached. Happy to walk through anything.</p>
-<p style="margin:10px 0 0;">- Site Progress Tracker</p>`
-
   return html
 }
 
-export function buildEmailSubject(site, report, issues = []) {
-  const highPriorityCount = issues.filter((issue) => issue.priority === 'high').length
-  const suffix = highPriorityCount > 0 ? ` (${highPriorityCount} high-priority blockers)` : ''
-  return `[SITE - ${site.code || site.id}] Progress update - ${formatDate(report.date)}${suffix}`
-}
-
-function formatDate(dateStr) {
-  const date = new Date(dateStr)
-  if (Number.isNaN(date.getTime())) return 'No date'
-
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ]
-  return `${days[date.getDay()]} ${date.getDate()} ${months[date.getMonth()]}`
-}
-
 export async function generateEml(emailData) {
-  const {
-    to,
-    cc,
-    from,
-    subject,
-    htmlBody,
-    attachments = [],
-  } = emailData
+  const { to, cc, from, subject, htmlBody, attachments = [] } = emailData
 
   const boundary = `----${Date.now()}=${Math.random()}`
   let eml = `From: ${from}

@@ -12,26 +12,35 @@ const emit = defineEmits(['update:modelValue'])
 const { addAttachment } = useAttachments()
 const fileInputRef = ref(null)
 const isDragOver = ref(false)
+const isUploading = ref(false)
 
 async function handleFiles(files) {
-  for (const file of files) {
-    try {
-      const id = await addAttachment(file)
-      emit('update:modelValue', [...props.modelValue, id])
-    } catch (err) {
-      console.error('Failed to save attachment:', err)
+  if (!files.length) return
+  isUploading.value = true
+  try {
+    for (const file of files) {
+      try {
+        const id = await addAttachment(file)
+        emit('update:modelValue', [...props.modelValue, id])
+      } catch (err) {
+        console.error('Failed to save attachment:', err)
+      }
     }
+  } finally {
+    isUploading.value = false
   }
 }
 
 function handleDrop(event) {
   event.preventDefault()
   isDragOver.value = false
+  if (isUploading.value) return
   const files = Array.from(event.dataTransfer.files)
   handleFiles(files)
 }
 
 function handlePaste(event) {
+  if (isUploading.value) return
   const items = event.clipboardData?.items
   if (!items) return
   const files = []
@@ -48,6 +57,7 @@ function handlePaste(event) {
 }
 
 function handleClick() {
+  if (isUploading.value) return
   fileInputRef.value?.click()
 }
 
@@ -71,11 +81,21 @@ function removeAttachment(id) {
       @drop="handleDrop"
       @click="handleClick"
       @paste="handlePaste"
-      :style="{ opacity: isDragOver ? 0.7 : 1, cursor: 'pointer' }"
+      :style="{
+        opacity: isDragOver ? 0.7 : 1,
+        cursor: isUploading ? 'default' : 'pointer',
+        pointerEvents: isUploading ? 'none' : 'auto',
+      }"
       tabindex="0"
     >
-      <MaterialIcon name="upload_file" :size="18" />
-      drop file or image
+      <template v-if="isUploading">
+        <span class="spinner" />
+        <span style="font-size: 11px">Uploading…</span>
+      </template>
+      <template v-else>
+        <MaterialIcon name="upload_file" :size="18" />
+        drop file or image
+      </template>
     </div>
     <input
       ref="fileInputRef"
@@ -107,3 +127,19 @@ function removeAttachment(id) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--ink-2);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>

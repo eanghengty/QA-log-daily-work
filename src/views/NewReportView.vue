@@ -181,7 +181,7 @@ function currentTime() {
             </div>
           </div>
           <div class="box-dash p-3 col gap-2 grow">
-            <div class="label">Link approvals / sign-offs</div>
+            <div class="label">Link confirmations / agreements</div>
             <div class="row gap-2" style="flex-wrap: wrap">
               <button
                 v-for="confirm in confirms?.slice(0, 4)"

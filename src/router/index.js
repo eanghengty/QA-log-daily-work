@@ -37,6 +37,11 @@ const routes = [
     component: () => import('../views/EmailDraftView.vue'),
   },
   {
+    path: '/site/:id/email-settings',
+    name: 'email-settings',
+    component: () => import('../views/EmailSettingsView.vue'),
+  },
+  {
     path: '/site/:id/issue/new',
     name: 'new-issue',
     component: () => import('../views/IssueLogView.vue'),

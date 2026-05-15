@@ -21,6 +21,8 @@ const { data: issue } = useIssueById(issueId.value || 0)
 
 const form = ref(emptyForm())
 const showViewer = ref(false)
+const isSaving = ref(false)
+const saveError = ref('')
 const pageTitle = computed(() => (isEdit.value ? 'Edit blocker' : 'Log a blocker'))
 const pageSubtitle = computed(() => `${site.value?.name || siteId} - field risk or delay`)
 
@@ -42,33 +44,41 @@ watch(
 )
 
 async function save(options = {}) {
-  const payload = {
-    siteId,
-    title: form.value.title,
-    priority: form.value.priority,
-    area: form.value.area,
-    environment: form.value.environment,
-    steps: form.value.steps,
-    status: form.value.status,
-    reportId: null,
-    attachmentIds: [...form.value.attachmentIds],
-    date: new Date().toISOString().split('T')[0],
-  }
+  isSaving.value = true
+  saveError.value = ''
+  try {
+    const payload = {
+      siteId,
+      title: form.value.title,
+      priority: form.value.priority,
+      area: form.value.area,
+      environment: form.value.environment,
+      steps: form.value.steps,
+      status: form.value.status,
+      reportId: null,
+      attachmentIds: [...form.value.attachmentIds],
+      date: new Date().toISOString().split('T')[0],
+    }
 
-  if (isEdit.value) {
-    await updateIssue(Number(issueId.value), payload)
+    if (isEdit.value) {
+      await updateIssue(Number(issueId.value), payload)
+      router.push(`/site/${siteId}`)
+      return
+    }
+
+    await addIssue(payload)
+
+    if (options.addAnother) {
+      form.value = emptyForm()
+      return
+    }
+
     router.push(`/site/${siteId}`)
-    return
+  } catch {
+    saveError.value = 'Failed to save. Please try again.'
+  } finally {
+    isSaving.value = false
   }
-
-  await addIssue(payload)
-
-  if (options.addAnother) {
-    form.value = emptyForm()
-    return
-  }
-
-  router.push(`/site/${siteId}`)
 }
 
 function goBack() {
@@ -91,11 +101,13 @@ function emptyForm() {
 <template>
   <div class="col grow">
     <Topbar :title="pageTitle" :subtitle="pageSubtitle">
-      <button type="button" class="btn btn-ghost" @click="goBack">Cancel</button>
-      <button v-if="!isEdit" type="button" class="btn" @click="save({ addAnother: true })">Save & add another</button>
-      <button type="button" class="btn btn-primary" @click="save()">
-        <MaterialIcon name="save" />
-        Save blocker
+      <div v-if="saveError" class="tiny" style="color: var(--issue)">{{ saveError }}</div>
+      <button type="button" class="btn btn-ghost" :disabled="isSaving" @click="goBack">Cancel</button>
+      <button v-if="!isEdit" type="button" class="btn" :disabled="isSaving" @click="save({ addAnother: true })">Save & add another</button>
+      <button type="button" class="btn btn-primary" :disabled="isSaving" @click="save()">
+        <span v-if="isSaving" class="btn-spinner" />
+        <MaterialIcon v-else name="save" />
+        {{ isSaving ? 'Saving…' : 'Save blocker' }}
       </button>
     </Topbar>
 

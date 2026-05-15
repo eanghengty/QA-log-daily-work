@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
+import { useScopes } from '../composables/useScopes.js'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
 const route = useRoute()
@@ -9,6 +10,7 @@ const router = useRouter()
 const siteId = computed(() => route.params.id)
 const isEdit = computed(() => Boolean(siteId.value))
 const { addSite, updateSite, deleteSite, useSiteById } = useSites()
+const { scopes } = useScopes()
 const { data: site } = useSiteById(siteId.value || '')
 
 const form = ref(emptyForm())
@@ -111,7 +113,10 @@ function emptyForm() {
 
       <div class="col gap-2">
         <div class="label">Scope</div>
-        <input v-model="form.scope" class="field" placeholder="e.g. Full build / Upgrade / Audit" />
+        <input v-model="form.scope" class="field" placeholder="e.g. Full build / Upgrade / Audit" list="scope-options-view" />
+        <datalist id="scope-options-view">
+          <option v-for="s in scopes" :key="s.id" :value="s.name" />
+        </datalist>
       </div>
 
       <div class="col gap-2">
@@ -131,7 +136,7 @@ function emptyForm() {
 
       <div v-if="isEdit" class="box-dash p-3 col gap-2" style="margin-top: 12px">
         <div class="label">Remove site</div>
-        <div class="small">Deletes this site and its progress updates, blockers, approvals, and email settings.</div>
+        <div class="small">Deletes this site and its progress updates, blockers, confirmations, and email settings.</div>
         <button
           type="button"
           class="btn"
