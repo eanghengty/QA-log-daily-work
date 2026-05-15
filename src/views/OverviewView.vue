@@ -8,8 +8,10 @@ import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 import AddSiteModal from '../components/AddSiteModal.vue'
 import { exportBackup, importBackup } from '../lib/backup.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 
 const router = useRouter()
+const { logAction } = useActivityLog()
 const showAddSite = ref(false)
 const restoreStatus = ref('')
 const { sites } = useSites()
@@ -98,6 +100,7 @@ function csvCell(value) {
 
 async function backup() {
   await exportBackup()
+  await logAction('Full backup exported', '')
 }
 
 function triggerRestore() {
@@ -117,6 +120,7 @@ async function handleRestoreFile(event) {
   try {
     const text = await file.text()
     await importBackup(text)
+    await logAction('Full backup restored', '')
     restoreStatus.value = 'Restore complete'
     setTimeout(() => { restoreStatus.value = '' }, 3000)
   } catch (error) {

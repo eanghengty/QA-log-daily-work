@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useConfirms } from '../composables/useConfirms.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
+import { useConfirmSources } from '../composables/useConfirmSources.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import AttachmentViewer from '../components/AttachmentViewer.vue'
@@ -16,6 +18,8 @@ const isEdit = computed(() => Boolean(confirmId.value))
 
 const { useSiteById } = useSites()
 const { addConfirm, updateConfirm, useConfirmById } = useConfirms(siteId)
+const { logAction } = useActivityLog()
+const { confirmSources } = useConfirmSources()
 const { data: site } = useSiteById(siteId)
 const { data: confirm } = useConfirmById(confirmId.value || 0)
 
@@ -65,8 +69,10 @@ async function save() {
 
     if (isEdit.value) {
       await updateConfirm(Number(confirmId.value), payload)
+      await logAction('Confirmation updated', `${payload.title || 'Untitled'} — ${siteId}`)
     } else {
       await addConfirm(payload)
+      await logAction('Confirmation created', `${payload.title || 'Untitled'} — ${siteId}`)
     }
 
     router.push(`/site/${siteId}`)
@@ -84,7 +90,7 @@ function goBack() {
 function emptyForm() {
   return {
     title: '',
-    source: 'Email',
+    source: '',
     confirmedBy: '',
     notes: '',
     attachmentIds: [],
@@ -114,18 +120,17 @@ function emptyForm() {
         <div class="row gap-3">
           <div class="col gap-2" style="flex: 1 1 0%">
             <div class="label">Source</div>
-            <div class="row gap-2">
-              <button type="button" class="chip" :class="{ 'chip-confirm': form.source === 'Email' }" @click="form.source = 'Email'">
-                Email
-                <MaterialIcon v-if="form.source === 'Email'" name="radio_button_checked" :size="14" />
-              </button>
-              <button type="button" class="chip" :class="{ 'chip-confirm': form.source === 'Slack' }" @click="form.source = 'Slack'">
-                Slack
-                <MaterialIcon v-if="form.source === 'Slack'" name="radio_button_checked" :size="14" />
-              </button>
-              <button type="button" class="chip" :class="{ 'chip-confirm': form.source === 'Meeting' }" @click="form.source = 'Meeting'">
-                Meeting
-                <MaterialIcon v-if="form.source === 'Meeting'" name="radio_button_checked" :size="14" />
+            <div class="row gap-2" style="flex-wrap: wrap">
+              <button
+                v-for="src in (confirmSources || [])"
+                :key="src.id"
+                type="button"
+                class="chip"
+                :class="{ 'chip-confirm': form.source === src.name }"
+                @click="form.source = src.name"
+              >
+                {{ src.name }}
+                <MaterialIcon v-if="form.source === src.name" name="radio_button_checked" :size="14" />
               </button>
             </div>
           </div>

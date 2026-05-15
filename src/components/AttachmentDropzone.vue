@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useAttachments } from '../composables/useAttachments.js'
 import MaterialIcon from './MaterialIcon.vue'
 
@@ -13,6 +13,10 @@ const { addAttachment } = useAttachments()
 const fileInputRef = ref(null)
 const isDragOver = ref(false)
 const isUploading = ref(false)
+
+const pendingPasteFile = ref(null)
+const pendingPasteName = ref('')
+const pasteNameInputRef = ref(null)
 
 async function handleFiles(files) {
   if (!files.length) return
@@ -43,6 +47,22 @@ function handlePaste(event) {
   if (isUploading.value) return
   const items = event.clipboardData?.items
   if (!items) return
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (!file) continue
+      event.preventDefault()
+      const ext = item.type.split('/')[1] || 'png'
+      pendingPasteFile.value = file
+      pendingPasteName.value = `screenshot.${ext}`
+      nextTick(() => {
+        pasteNameInputRef.value?.focus()
+        pasteNameInputRef.value?.select()
+      })
+      return
+    }
+  }
+  // non-image files — attach directly without prompting
   const files = []
   for (const item of items) {
     if (item.kind === 'file') {
@@ -50,10 +70,21 @@ function handlePaste(event) {
       if (file) files.push(file)
     }
   }
-  if (files.length) {
-    event.preventDefault()
-    handleFiles(files)
-  }
+  if (files.length) { event.preventDefault(); handleFiles(files) }
+}
+
+async function confirmPasteName() {
+  if (!pendingPasteFile.value) return
+  const name = pendingPasteName.value.trim() || pendingPasteFile.value.name
+  const renamedFile = new File([pendingPasteFile.value], name, { type: pendingPasteFile.value.type })
+  pendingPasteFile.value = null
+  pendingPasteName.value = ''
+  await handleFiles([renamedFile])
+}
+
+function cancelPaste() {
+  pendingPasteFile.value = null
+  pendingPasteName.value = ''
 }
 
 function handleClick() {
@@ -97,13 +128,29 @@ function removeAttachment(id) {
         drop file or image
       </template>
     </div>
-    <input
-      ref="fileInputRef"
-      type="file"
-      multiple
-      hidden
-      @change="handleInputChange"
-    />
+    <input ref="fileInputRef" type="file" multiple hidden @change="handleInputChange" />
+
+    <div v-if="pendingPasteFile" class="col gap-2 p-3" style="background: var(--paper-2); border-radius: 6px; border: 1.5px dashed var(--line-2)">
+      <div class="tiny" style="color: var(--ink-2); font-weight: 600">Name this screenshot</div>
+      <div class="row gap-2">
+        <input
+          ref="pasteNameInputRef"
+          v-model="pendingPasteName"
+          class="field grow"
+          style="font-size: 12px"
+          @keydown.enter="confirmPasteName"
+          @keydown.escape="cancelPaste"
+        />
+        <button type="button" class="btn btn-primary" style="padding: 6px 10px; font-size: 12px" @click="confirmPasteName">
+          <MaterialIcon name="check" :size="14" />
+          Attach
+        </button>
+        <button type="button" class="btn btn-ghost" style="padding: 6px 10px; font-size: 12px" @click="cancelPaste">
+          <MaterialIcon name="close" :size="14" />
+        </button>
+      </div>
+      <div class="tiny" style="color: var(--ink-3)">Press Enter to attach · Esc to cancel</div>
+    </div>
     <div class="row gap-2" style="flex-wrap: wrap">
       <div
         v-for="id in modelValue"

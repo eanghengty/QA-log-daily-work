@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useIssues } from '../composables/useIssues.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import AttachmentViewer from '../components/AttachmentViewer.vue'
@@ -16,6 +17,7 @@ const isEdit = computed(() => Boolean(issueId.value))
 
 const { useSiteById } = useSites()
 const { addIssue, updateIssue, useIssueById } = useIssues(siteId)
+const { logAction } = useActivityLog()
 const { data: site } = useSiteById(siteId)
 const { data: issue } = useIssueById(issueId.value || 0)
 
@@ -62,11 +64,13 @@ async function save(options = {}) {
 
     if (isEdit.value) {
       await updateIssue(Number(issueId.value), payload)
+      await logAction('Blocker updated', `${payload.title || 'Untitled'} — ${siteId}`)
       router.push(`/site/${siteId}`)
       return
     }
 
     await addIssue(payload)
+    await logAction('Blocker created', `${payload.title || 'Untitled'} — ${siteId}`)
 
     if (options.addAnother) {
       form.value = emptyForm()

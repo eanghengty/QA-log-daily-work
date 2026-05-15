@@ -6,6 +6,7 @@ import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { exportSite, importSite } from '../lib/backup.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -19,6 +20,7 @@ const { data: site } = useSiteById(siteId)
 const { reports, deleteReport } = useReports(siteId)
 const { issues, pendingIssues, deleteIssue } = useIssues(siteId)
 const { confirms, deleteConfirm } = useConfirms(siteId)
+const { logAction } = useActivityLog()
 
 const sortedReports = computed(() => [...(reports.value || [])].sort(compareReportsDesc))
 const latestReport = computed(() => sortedReports.value[0] || null)
@@ -87,14 +89,17 @@ function cancelDelete() { pendingDelete.value = null }
 async function confirmDeleteReport(report) {
   pendingDelete.value = null
   await deleteReport(report.id)
+  await logAction('Progress update deleted', `${report.date || 'unknown date'} — ${siteId}`)
 }
 async function confirmDeleteIssue(issue) {
   pendingDelete.value = null
   await deleteIssue(issue.id)
+  await logAction('Blocker deleted', `${issue.title || issue.code || 'Untitled'} — ${siteId}`)
 }
 async function confirmDeleteConfirm(confirm) {
   pendingDelete.value = null
   await deleteConfirm(confirm.id)
+  await logAction('Confirmation deleted', `${confirm.title || confirm.code || 'Untitled'} — ${siteId}`)
 }
 
 const expandedReports = ref(new Set())
@@ -109,6 +114,7 @@ const siteStatus = ref('')
 
 async function handleExportSite() {
   await exportSite(siteId)
+  await logAction('Site exported', `${siteId} — ${site.value?.name || ''}`)
 }
 
 function triggerImportSite() {
@@ -148,6 +154,7 @@ async function handleImportFile(event) {
   try {
     await exportSite(siteId)
     await importSite(data)
+    await logAction('Site imported', `${siteId} — ${site.value?.name || ''}`)
     siteStatus.value = 'Imported successfully — current data was backed up first.'
     setTimeout(() => { siteStatus.value = '' }, 4000)
   } catch (err) {

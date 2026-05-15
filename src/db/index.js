@@ -44,6 +44,38 @@ db.version(4).stores({
   }
 })
 
+db.version(5).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+})
+
+db.version(6).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+}).upgrade(async (tx) => {
+  const existing = await tx.table('confirmSources').count()
+  if (existing === 0) {
+    await tx.table('confirmSources').bulkAdd([
+      { name: 'Email' },
+      { name: 'Slack' },
+      { name: 'Meeting' },
+    ])
+  }
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }

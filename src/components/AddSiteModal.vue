@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useScopes } from '../composables/useScopes.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 import { db } from '../db/index.js'
 import MaterialIcon from './MaterialIcon.vue'
 
@@ -14,6 +15,7 @@ const emit = defineEmits(['update:modelValue'])
 const router = useRouter()
 const { addSite } = useSites()
 const { scopes } = useScopes()
+const { logAction } = useActivityLog()
 
 const form = ref(emptyForm())
 const isSaving = ref(false)
@@ -55,6 +57,7 @@ async function save() {
       url: form.value.url.trim(),
     })
 
+    await logAction('Site created', `${siteId} — ${form.value.name.trim()}`)
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
     form.value = emptyForm()

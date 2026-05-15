@@ -5,6 +5,8 @@ import { useSites } from '../composables/useSites.js'
 import MaterialIcon from './MaterialIcon.vue'
 import AddSiteModal from './AddSiteModal.vue'
 import ScopeModal from './ScopeModal.vue'
+import ActivityLogModal from './ActivityLogModal.vue'
+import ConfirmSourceModal from './ConfirmSourceModal.vue'
 import { useScopes } from '../composables/useScopes.js'
 
 const { sites } = useSites()
@@ -15,6 +17,9 @@ const router = useRouter()
 const activeId = computed(() => route.params.id || null)
 const showAddSite = ref(false)
 const showScopeModal = ref(false)
+const showActivityLog = ref(false)
+const showConfirmSources = ref(false)
+const collapsedScopes = ref(new Set())
 
 const groupedSites = computed(() => {
   const list = sites.value || []
@@ -36,6 +41,12 @@ const groupedSites = computed(() => {
 
 function goToSite(id) {
   router.push(`/site/${id}`)
+}
+
+function toggleScope(key) {
+  const s = new Set(collapsedScopes.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  collapsedScopes.value = s
 }
 
 function goToAddSite() {
@@ -74,25 +85,36 @@ function goToHome() {
 
     <div class="col grow scroll" style="overflow: auto; padding-top: 8px">
       <template v-for="([scope, scopeSites]) in groupedSites" :key="scope">
-        <div
-          class="px-5"
-          style="padding-top: 10px; padding-bottom: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3)"
-        >{{ scope || 'No scope' }}</div>
         <button
-          v-for="site in scopeSites"
-          :key="site.id"
           type="button"
-          class="site-row"
-          :class="{ active: site.id === activeId }"
-          @click="goToSite(site.id)"
+          class="px-5 row items-center gap-1"
+          style="padding-top: 10px; padding-bottom: 4px; background: transparent; border: 0; cursor: pointer; width: 100%; text-align: left"
+          @click="toggleScope(scope)"
         >
-          <span style="font-size: 11px">{{ site.id }} — {{ site.name }}</span>
-          <span class="badge-count" :class="{ 'badge-zero': site.pending === 0 }">{{ site.pending || 0 }}</span>
+          <span style="flex: 1; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3)">{{ scope || 'No scope' }}</span>
+          <MaterialIcon
+            :name="collapsedScopes.has(scope) ? 'chevron_right' : 'expand_more'"
+            :size="13"
+            style="color: var(--ink-3)"
+          />
         </button>
+        <template v-if="!collapsedScopes.has(scope)">
+          <button
+            v-for="site in scopeSites"
+            :key="site.id"
+            type="button"
+            class="site-row"
+            :class="{ active: site.id === activeId }"
+            @click="goToSite(site.id)"
+          >
+            <span style="font-size: 11px">{{ site.id }} — {{ site.name }}</span>
+            <span class="badge-count" :class="{ 'badge-zero': site.pending === 0 }">{{ site.pending || 0 }}</span>
+          </button>
+        </template>
       </template>
       <button type="button" class="site-row" style="color: var(--ink-3); margin-top: 6px" @click="goToAddSite">
-        <span class="row items-center gap-2">
-          <MaterialIcon name="add" :size="14" />
+        <span class="row items-center gap-2" style="font-size: 11px">
+          <MaterialIcon name="add" :size="12" />
           Add site
         </span>
       </button>
@@ -100,22 +122,44 @@ function goToHome() {
 
     <AddSiteModal v-model="showAddSite" />
     <ScopeModal v-model="showScopeModal" />
+    <ActivityLogModal v-model="showActivityLog" />
+    <ConfirmSourceModal v-model="showConfirmSources" />
 
-    <button
-      type="button"
-      class="p-4"
-      style="border-top: 1.5px solid var(--line); background: transparent; border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; text-align: left; width: 100%"
-      @click="showScopeModal = true"
-    >
-      <div class="row items-center gap-2">
-        <div class="box center" style="width: 24px; height: 24px; border-radius: 999px; background: var(--paper-2); font-size: 11px">FT</div>
-        <div class="col grow">
-          <div style="font-size: 12px; font-weight: 600">Field tracker</div>
-          <div class="tiny">Manage scopes</div>
+    <div style="border-top: 1.5px solid var(--line)">
+      <button
+        type="button"
+        class="p-4"
+        style="background: transparent; border: 0; cursor: pointer; text-align: left; width: 100%"
+        @click="showScopeModal = true"
+      >
+        <div class="row items-center gap-2">
+          <div class="box center" style="width: 24px; height: 24px; border-radius: 999px; background: var(--paper-2); font-size: 11px">FT</div>
+          <div class="col grow">
+            <div style="font-size: 12px; font-weight: 600">Field tracker</div>
+            <div class="tiny">Manage scopes</div>
+          </div>
+          <MaterialIcon name="tune" :size="14" style="color: var(--ink-3)" />
         </div>
-        <MaterialIcon name="tune" :size="14" style="color: var(--ink-3)" />
-      </div>
-    </button>
+      </button>
+      <button
+        type="button"
+        class="px-4"
+        style="background: transparent; border: 0; cursor: pointer; text-align: left; width: 100%; padding-bottom: 4px; display: flex; align-items: center; gap: 6px"
+        @click="showActivityLog = true"
+      >
+        <MaterialIcon name="history" :size="14" style="color: var(--ink-3)" />
+        <span class="tiny" style="color: var(--ink-3)">Activity log</span>
+      </button>
+      <button
+        type="button"
+        class="px-4"
+        style="background: transparent; border: 0; cursor: pointer; text-align: left; width: 100%; padding-bottom: 12px; display: flex; align-items: center; gap: 6px"
+        @click="showConfirmSources = true"
+      >
+        <MaterialIcon name="fact_check" :size="14" style="color: var(--ink-3)" />
+        <span class="tiny" style="color: var(--ink-3)">Confirmation sources</span>
+      </button>
+    </div>
   </div>
 </template>
 

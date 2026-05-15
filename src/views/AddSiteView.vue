@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useScopes } from '../composables/useScopes.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
 const route = useRoute()
@@ -11,6 +12,7 @@ const siteId = computed(() => route.params.id)
 const isEdit = computed(() => Boolean(siteId.value))
 const { addSite, updateSite, deleteSite, useSiteById } = useSites()
 const { scopes } = useScopes()
+const { logAction } = useActivityLog()
 const { data: site } = useSiteById(siteId.value || '')
 
 const form = ref(emptyForm())
@@ -46,6 +48,7 @@ async function save() {
       comment: form.value.comment,
       url: form.value.url,
     })
+    await logAction('Site updated', `${siteId.value} — ${form.value.name}`)
     router.push(`/site/${siteId.value}`)
     return
   }
@@ -57,6 +60,7 @@ async function save() {
     comment: form.value.comment.trim(),
     url: form.value.url.trim(),
   })
+  await logAction('Site created', `${form.value.id.trim()} — ${form.value.name.trim()}`)
   router.push('/')
 }
 
@@ -68,6 +72,7 @@ async function removeSite() {
     return
   }
 
+  await logAction('Site deleted', `${siteId.value} — ${site.value?.name || ''}`)
   await deleteSite(siteId.value)
   router.push('/')
 }

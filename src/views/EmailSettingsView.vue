@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useEmailSettings } from '../composables/useEmailSettings.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
@@ -13,6 +14,7 @@ const siteId = route.params.id
 const { useSiteById, sites } = useSites()
 const { data: site } = useSiteById(siteId)
 const { getEmailSettings, saveEmailSettings } = useEmailSettings()
+const { logAction } = useActivityLog()
 
 const to = ref('')
 const cc = ref('')
@@ -48,6 +50,7 @@ async function copyFromSite() {
 async function save() {
   const prefix = defaultSubject.value.replace(/\s*-\s*\d{1,2}\s+\w+\s+\d{4}$/, '').trim()
   await saveEmailSettings(siteId, { to: to.value, cc: cc.value, defaultSubject: prefix })
+  await logAction('Email settings saved', siteId)
   defaultSubject.value = prefix
   status.value = 'Saved'
   setTimeout(() => { status.value = '' }, 2500)

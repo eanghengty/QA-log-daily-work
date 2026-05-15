@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -21,6 +22,7 @@ const { issues } = useIssues(siteId)
 const { confirms } = useConfirms(siteId)
 const { data: site } = useSiteById(siteId)
 const { data: report } = useReportById(reportId.value || 0)
+const { logAction } = useActivityLog()
 
 const today = new Date().toISOString().split('T')[0]
 const form = ref(emptyForm())
@@ -61,6 +63,9 @@ async function save(options = {}) {
 
   if (isEdit.value) {
     await updateReport(Number(reportId.value), payload)
+    await logAction('Progress update edited', `${payload.date} — ${siteId}`)
+  } else {
+    await logAction('Progress update created', `${payload.date} — ${siteId}`)
   }
 
   if (options.generateEmail) {
