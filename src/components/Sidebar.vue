@@ -5,8 +5,10 @@ import { useSites } from '../composables/useSites.js'
 import MaterialIcon from './MaterialIcon.vue'
 import AddSiteModal from './AddSiteModal.vue'
 import ScopeModal from './ScopeModal.vue'
+import { useScopes } from '../composables/useScopes.js'
 
 const { sites } = useSites()
+const { scopes } = useScopes()
 const route = useRoute()
 const router = useRouter()
 
@@ -16,9 +18,11 @@ const showScopeModal = ref(false)
 
 const groupedSites = computed(() => {
   const list = sites.value || []
+  const knownScopes = new Set((scopes.value || []).map((s) => s.name))
   const groups = {}
   for (const site of list) {
-    const key = site.scope?.trim() || ''
+    const raw = site.scope?.trim() || ''
+    const key = knownScopes.has(raw) ? raw : ''
     if (!groups[key]) groups[key] = []
     groups[key].push(site)
   }
@@ -82,7 +86,7 @@ function goToHome() {
           :class="{ active: site.id === activeId }"
           @click="goToSite(site.id)"
         >
-          <span>{{ site.name }}</span>
+          <span style="font-size: 11px">{{ site.id }} — {{ site.name }}</span>
           <span class="badge-count" :class="{ 'badge-zero': site.pending === 0 }">{{ site.pending || 0 }}</span>
         </button>
       </template>

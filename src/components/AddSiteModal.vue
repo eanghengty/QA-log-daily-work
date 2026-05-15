@@ -109,10 +109,10 @@ function emptyForm() {
 
           <div class="col gap-2">
             <div class="label">Scope</div>
-            <input v-model="form.scope" class="field" placeholder="e.g. Full build / Upgrade / Audit" list="scope-options-modal" :disabled="isSaving" />
-            <datalist id="scope-options-modal">
-              <option v-for="s in scopes" :key="s.id" :value="s.name" />
-            </datalist>
+            <select v-model="form.scope" class="field" :disabled="isSaving" style="cursor: pointer">
+              <option value="">— None —</option>
+              <option v-for="s in (scopes || [])" :key="s.id" :value="s.name">{{ s.name }}</option>
+            </select>
           </div>
 
           <div class="col gap-2">

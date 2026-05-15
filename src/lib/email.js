@@ -10,11 +10,16 @@ export async function buildEmailBody(report, site, settings = {}) {
     ? (await db.confirms.bulkGet(report.linkedConfirmIds || [])).filter(Boolean)
     : []
 
+  const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Phnom_Penh' })
+  const siteLabel = `${site.id} - ${site.name}`
+
   const noteLines = (report.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
   const noteItems = noteLines.length
     ? noteLines.map((l) => `  <li>${escapeHtml(l)}</li>`).join('\n')
     : `  <li>Site progress notes captured</li>`
-  let html = `<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
+  let html = `<p style="margin:0 0 4px;">Dear All,</p>
+<p style="margin:0 0 14px;">Kindly find below report update for ${escapeHtml(siteLabel)}, as of ${escapeHtml(today)}</p>
+<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
 <ul style="margin:4px 0 0 18px; padding:0;">
 ${noteItems}
 </ul>`
