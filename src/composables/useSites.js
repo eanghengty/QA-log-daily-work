@@ -35,6 +35,7 @@ export function useSites() {
     await db.issues.where('siteId').equals(id).delete()
     await db.confirms.where('siteId').equals(id).delete()
     await db.checklists.where('siteId').equals(id).delete()
+    await db.cableMatrices.where('siteId').equals(id).delete()
     await db.emailSettings.delete(id)
     await db.sites.delete(id)
   }

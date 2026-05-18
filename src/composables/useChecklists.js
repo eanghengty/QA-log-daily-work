@@ -63,6 +63,7 @@ export function useChecklists(siteId) {
         title: title.trim(),
         status: CHECKLIST_STATUS.TODO,
         comment: '',
+        statusHistory: [],
       },
     ]
 
@@ -85,9 +86,27 @@ export function useChecklists(siteId) {
   }
 
   async function setSubItemStatus(checklistId, itemId, status) {
-    return await updateSubItem(checklistId, itemId, {
-      status: normalizeStatus(status),
+    const checklist = await db.checklists.get(Number(checklistId))
+    if (!checklist) return
+
+    const nextStatus = normalizeStatus(status)
+    const items = (checklist.items || []).map((item) => {
+      if (item.id !== itemId) return item
+
+      const previousStatus = normalizeStatus(item.status)
+      if (previousStatus === nextStatus) return item
+
+      return {
+        ...item,
+        status: nextStatus,
+        statusHistory: [
+          ...(Array.isArray(item.statusHistory) ? item.statusHistory : []),
+          createStatusHistoryEntry(previousStatus, nextStatus),
+        ],
+      }
     })
+
+    return await updateChecklist(checklist.id, { items })
   }
 
   async function setSubItemComment(checklistId, itemId, comment) {
@@ -128,17 +147,18 @@ export function useChecklists(siteId) {
         summary.processedChecklists += 1
 
         const existing = checklistMap.get(normalizeKey(title))
-        const normalizedItems = uniqueTitles(group.items || [])
+        const normalizedItems = uniqueItems(group.items || [])
 
         if (existing) {
           const existingItemKeys = new Set((existing.items || []).map((item) => normalizeKey(item.title)))
           const freshItems = normalizedItems
-            .filter((itemTitle) => !existingItemKeys.has(normalizeKey(itemTitle)))
-            .map((itemTitle) => ({
+            .filter((item) => !existingItemKeys.has(normalizeKey(item.title)))
+            .map((item) => ({
               id: createItemId(),
-              title: itemTitle,
-              status: CHECKLIST_STATUS.TODO,
-              comment: '',
+              title: item.title,
+              status: normalizeStatus(item.status),
+              comment: String(item.comment || '').trim(),
+              statusHistory: [],
             }))
 
           summary.skippedSubItems += normalizedItems.length - freshItems.length
@@ -162,11 +182,12 @@ export function useChecklists(siteId) {
           siteId,
           title,
           order: nextOrder,
-          items: normalizedItems.map((itemTitle) => ({
+          items: normalizedItems.map((item) => ({
             id: createItemId(),
-            title: itemTitle,
-            status: CHECKLIST_STATUS.TODO,
-            comment: '',
+            title: item.title,
+            status: normalizeStatus(item.status),
+            comment: String(item.comment || '').trim(),
+            statusHistory: [],
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -220,6 +241,7 @@ export function useChecklists(siteId) {
         title: item.title,
         status: item.status || CHECKLIST_STATUS.TODO,
         comment: item.comment || '',
+        statusHistory: [],
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -292,23 +314,36 @@ function createItemId() {
   return `item-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
 
+function createStatusHistoryEntry(fromStatus, toStatus) {
+  return {
+    id: createItemId(),
+    fromStatus: normalizeStatus(fromStatus),
+    toStatus: normalizeStatus(toStatus),
+    changedAt: new Date().toISOString(),
+  }
+}
+
 function normalizeKey(value) {
   return String(value || '').trim().toLowerCase()
 }
 
-function uniqueTitles(items) {
+function uniqueItems(items) {
   const seen = new Set()
   const unique = []
 
   for (const item of items) {
-    const title = String(item || '').trim()
+    const title = String(item?.title || item || '').trim()
     if (!title) continue
 
     const key = normalizeKey(title)
     if (seen.has(key)) continue
 
     seen.add(key)
-    unique.push(title)
+    unique.push({
+      title,
+      status: normalizeStatus(item?.status),
+      comment: String(item?.comment || '').trim(),
+    })
   }
 
   return unique

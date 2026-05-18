@@ -11,7 +11,7 @@ generates an email draft from each update. There is no backend. All data lives i
 - **Tailwind CSS v4** via `@tailwindcss/vite` (`@import "tailwindcss"`)
 - **Dexie.js** for IndexedDB; no Pinia
 - **Material Symbols** via `src/components/MaterialIcon.vue`
-- **SheetJS (`xlsx`)** for checklist Excel template download and import
+- **SheetJS (`xlsx`)** for checklist and cable matrix Excel template download, export, and import
 
 ## Commands
 
@@ -31,7 +31,7 @@ or `npm.cmd run dev` when that happens.
 
 - `index.js` defines the Dexie schema and `initDb()`.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
-  `checklists`, plus supporting lookup/activity tables already in the app.
+  `checklists`, `cableMatrices`, plus supporting lookup/activity tables already in the app.
 - The app starts empty. Do not add demo, dummy, placeholder, or hardcoded site records.
 - Internal table/field names still use `reports`, `issues`, and `confirms`, but the user-facing
   domain language is telecom progress updates, blockers, and approvals.
@@ -39,6 +39,8 @@ or `npm.cmd run dev` when that happens.
   existing browser IndexedDB. It should not delete user-created data.
 - `checklists` stores one main checklist record per site. Each record owns an `items` array for
   sub checklist rows, including sub task status, comment, and local item ID.
+- `cableMatrices` stores one cable row per record, including cable number, cable label at origin
+  end destination, `from`, `to`, test / label check statuses, drag order, and row-level change log.
 
 ### Reactive Store (`src/composables/`)
 
@@ -48,6 +50,8 @@ or `npm.cmd run dev` when that happens.
   single-record helpers for edit views.
 - `useChecklists.js` owns per-site main checklist CRUD, sub checklist CRUD, summary counts,
   Excel import merge logic, drag reorder persistence, and duplicate-name protection.
+- `useCableMatrix.js` owns per-site cable matrix CRUD, summary counts, Excel import merge logic,
+  drag reorder persistence, and row-level change logging for statuses plus `from` / `to` edits.
 - Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
 - `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
@@ -55,11 +59,21 @@ or `npm.cmd run dev` when that happens.
 
 ### Checklist Excel (`src/lib/checklistSpreadsheet.js`)
 
-- `downloadChecklistTemplate()` exports a local `.xlsx` template with `Main task` and `Sub task`
-  columns only.
+- `downloadChecklistTemplate()` exports a local `.xlsx` template with `Main task`, `Sub task`,
+  `Status`, and `Comment` columns.
+- `downloadChecklistExport()` exports current checklist rows with repeated `Main task`, `Status`,
+  `Comment`, and `Log` columns.
 - `parseChecklistSpreadsheet()` reads the first worksheet and groups repeated `Main task` rows
   under the same main checklist.
 - Blank `Main task` cells inherit the most recent non-blank main task during import.
+
+### Cable Matrix Excel (`src/lib/cableMatrixSpreadsheet.js`)
+
+- `downloadCableMatrixTemplate()` exports a local `.xlsx` template with `Cable Number`,
+  `Cable label at origin end destination`, `From`, `To`, `Test`, `Label origin`, and
+  `Label end` columns.
+- `downloadCableMatrixExport()` exports current cable matrix rows with those columns plus `Log`.
+- `parseCableMatrixSpreadsheet()` reads the first worksheet and imports one cable row per sheet row.
 
 ### Email (`src/lib/email.js`)
 
@@ -75,6 +89,7 @@ or `npm.cmd run dev` when that happens.
   - `OverviewView`
   - `SiteDashboardView`
   - `ChecklistView` (site checklist board)
+  - `CableMatrixView` (site cable matrix board)
   - `NewReportView` (progress update form)
   - `EmailDraftView`
   - `IssueLogView` (blocker form)
@@ -87,7 +102,7 @@ or `npm.cmd run dev` when that happens.
   - `AttachmentDropzone`
   - `MaterialIcon`
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
-- The checklist workflow lives on its own route and is linked from the site dashboard.
+- The checklist and cable matrix workflows live on their own routes and are linked from the site dashboard.
 
 ## Conventions
 
@@ -118,6 +133,16 @@ or `npm.cmd run dev` when that happens.
   Repeated `Main task` values should append to the same main checklist.
 - **Checklist UX**: preserve the current sticky summary/add card area, collapsible main checklist
   cards, drag reordering, auto-scroll during drag, and per-sub-check comment modal behavior.
+- **Checklist export/logs**: checklist export includes `Status`, `Comment`, and `Log`. Sub checklist
+  logs must continue recording change dates for done / not done / N/A changes.
+- **Cable matrix columns**: cable matrix rows include `Cable Number`, `Cable label at origin end destination`,
+  `From`, `To`, `Test`, `Label origin`, and `Label end`.
+- **Cable matrix statuses**: `Test`, `Label origin`, and `Label end` use `No` / `OK` dropdowns
+  and persist their state in IndexedDB.
+- **Cable matrix logs**: row logs record change dates for `Test`, `Label origin`, `Label end`,
+  `From`, and `To`.
+- **Cable matrix UX**: preserve the sticky summary/add card area, row drag reorder, auto-scroll
+  during drag, export/import controls, and row-level log modal.
 - **Approvals**: saving an approval requires at least one attachment.
 - **IDs**: `sites` use slug strings; `reports`, `issues`, `confirms`, and `attachments`
   auto-increment.
@@ -133,6 +158,7 @@ or `npm.cmd run dev` when that happens.
 - `/site/:id` - site dashboard
 - `/site/:id/settings` - edit/delete site
 - `/site/:id/checklist` - site checklist
+- `/site/:id/cable-matrix` - site cable matrix
 - `/site/:id/report/new` - new progress update
 - `/site/:id/report/:reportId/edit` - edit progress update
 - `/site/:id/report/:reportId/email` - email draft
@@ -163,7 +189,17 @@ Then check the app in the browser:
 13. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
 14. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
 15. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
-16. Checklist Excel template downloads with `Main task` and `Sub task` columns, and Excel import
-    groups repeated main task rows together.
-17. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+16. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
+17. Checklist Excel template downloads with `Main task`, `Sub task`, `Status`, and `Comment`
+    columns, checklist export includes `Log`, and checklist import groups repeated main task rows
+    together.
+18. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
+    with `Cable Number`, `Cable label at origin end destination`, `From`, `To`, `Test`,
+    `Label origin`, and `Label end`.
+19. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+20. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
+    remain on reload.
+21. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
+    `From`, `To`, `Test`, `Label origin`, and `Label end`, and export includes `Log`.
+22. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

@@ -9,6 +9,7 @@ import {
 import { useSites } from '../composables/useSites.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import {
+  downloadChecklistExport,
   downloadChecklistTemplate,
   parseChecklistSpreadsheet,
 } from '../lib/checklistSpreadsheet.js'
@@ -57,6 +58,7 @@ const dropChecklistId = ref(null)
 const activeDuplicateChecklist = ref(null)
 const duplicateChecklistName = ref('')
 const activeDeleteChecklist = ref(null)
+const activeStatusLog = ref(null)
 const scrollContainerRef = ref(null)
 const autoScrollFrame = ref(null)
 
@@ -109,6 +111,17 @@ function handleDownloadTemplate() {
   showStatus('Checklist template downloaded.')
 }
 
+async function handleExportChecklist() {
+  if (!checklists.value?.length) {
+    showStatus('Add a main checklist before exporting.', 'issue')
+    return
+  }
+
+  downloadChecklistExport(checklists.value, site.value?.name || siteId)
+  await logAction('Checklist exported', `${siteId} - ${checklists.value.length} main tasks`)
+  showStatus('Checklist export downloaded.')
+}
+
 async function createChecklist() {
   const title = newChecklistTitle.value.trim()
   if (!title) return
@@ -134,6 +147,18 @@ function openDeleteChecklistModal(checklist) {
 
 function closeDeleteChecklistModal() {
   activeDeleteChecklist.value = null
+}
+
+function openStatusLogModal(checklist, item) {
+  activeStatusLog.value = {
+    checklistTitle: checklist.title,
+    itemTitle: item.title,
+    entries: [...getStatusHistory(item)].reverse(),
+  }
+}
+
+function closeStatusLogModal() {
+  activeStatusLog.value = null
 }
 
 async function removeChecklist() {
@@ -419,6 +444,45 @@ function getStatusLabel(status) {
   return 'Not done'
 }
 
+function getStatusHistory(item) {
+  return Array.isArray(item?.statusHistory) ? item.statusHistory : []
+}
+
+function getStatusLogLabel(entry) {
+  const fromLabel = getStatusLabel(entry?.fromStatus)
+  const toLabel = getStatusLabel(entry?.toStatus)
+
+  if (entry?.toStatus === CHECKLIST_STATUS.DONE && entry?.fromStatus !== CHECKLIST_STATUS.DONE) {
+    return 'Ticked as done'
+  }
+
+  if (entry?.toStatus === CHECKLIST_STATUS.NA && entry?.fromStatus !== CHECKLIST_STATUS.NA) {
+    return 'Marked as N/A'
+  }
+
+  if (entry?.toStatus === CHECKLIST_STATUS.TODO) {
+    if (entry?.fromStatus === CHECKLIST_STATUS.DONE) return 'Unticked from done'
+    if (entry?.fromStatus === CHECKLIST_STATUS.NA) return 'Cleared N/A'
+  }
+
+  return `${fromLabel} to ${toLabel}`
+}
+
+function formatStatusLogDate(value) {
+  if (!value) return 'Date unavailable'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Date unavailable'
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 function getProgressWidth(value) {
   return `${Math.min(Math.max(value || 0, 0), 100)}%`
 }
@@ -435,6 +499,10 @@ function getProgressWidth(value) {
     />
 
     <Topbar :title="title" :subtitle="subtitle">
+      <button type="button" class="btn btn-ghost" @click="handleExportChecklist">
+        <MaterialIcon name="download_for_offline" />
+        Export checklist
+      </button>
       <button type="button" class="btn btn-ghost" @click="handleDownloadTemplate">
         <MaterialIcon name="download" />
         Download template
@@ -682,6 +750,10 @@ function getProgressWidth(value) {
                       <MaterialIcon name="comment" :size="14" />
                       {{ item.comment ? 'Comment' : 'Add comment' }}
                     </button>
+                    <button type="button" class="chip" @click="openStatusLogModal(checklist, item)">
+                      <MaterialIcon name="history" :size="14" />
+                      Log
+                    </button>
                     <button type="button" class="chip" @click="removeSubItem(checklist.id, item)">
                       <MaterialIcon name="delete" :size="14" />
                       Remove
@@ -755,6 +827,60 @@ function getProgressWidth(value) {
               <MaterialIcon name="save" />
               Save comment
             </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="activeStatusLog"
+        class="add-site-overlay"
+        @click.self="closeStatusLogModal"
+      >
+        <div class="add-site-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Sub checklist log</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeStatusLogModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Main checklist</div>
+            <div class="box-soft p-3 small" style="color: var(--ink)">{{ activeStatusLog.checklistTitle }}</div>
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Sub checklist item</div>
+            <div class="box-soft p-3 small" style="color: var(--ink)">{{ activeStatusLog.itemTitle }}</div>
+          </div>
+
+          <div v-if="!activeStatusLog.entries.length" class="box-dash p-4 small">
+            No status changes recorded yet. Tick, untick, or mark this sub checklist item as N/A to start the log.
+          </div>
+
+          <div v-else class="col gap-2">
+            <div
+              v-for="entry in activeStatusLog.entries"
+              :key="entry.id || entry.changedAt"
+              class="box-soft p-3 col gap-1"
+            >
+              <div class="row gap-2" style="align-items: center; flex-wrap: wrap">
+                <span class="chip chip-neutral">
+                  <MaterialIcon name="event" :size="14" />
+                  {{ formatStatusLogDate(entry.changedAt) }}
+                </span>
+                <span class="small" style="color: var(--ink)">{{ getStatusLogLabel(entry) }}</span>
+              </div>
+              <div class="tiny">
+                {{ getStatusLabel(entry.fromStatus) }} -> {{ getStatusLabel(entry.toStatus) }}
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-primary" @click="closeStatusLogModal">Close</button>
           </div>
         </div>
       </div>

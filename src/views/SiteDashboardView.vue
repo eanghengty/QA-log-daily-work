@@ -6,6 +6,7 @@ import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { useChecklists } from '../composables/useChecklists.js'
+import { useCableMatrix } from '../composables/useCableMatrix.js'
 import { exportSite, importSite } from '../lib/backup.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
@@ -22,6 +23,7 @@ const { reports, deleteReport } = useReports(siteId)
 const { issues, pendingIssues, deleteIssue } = useIssues(siteId)
 const { confirms, deleteConfirm } = useConfirms(siteId)
 const { summary: checklistSummary } = useChecklists(siteId)
+const { summary: cableMatrixSummary } = useCableMatrix(siteId)
 const { logAction } = useActivityLog()
 
 const sortedReports = computed(() => [...(reports.value || [])].sort(compareReportsDesc))
@@ -53,6 +55,21 @@ const checklistLabel = computed(() => {
   const na = checklistSummary.value.na || 0
   return `${todo} not done - ${na} N/A`
 })
+const cableMatrixValue = computed(() =>
+  `${cableMatrixSummary.value?.fullyChecked || 0}/${cableMatrixSummary.value?.total || 0}`
+)
+const cableMatrixLabel = computed(() => {
+  if (!cableMatrixSummary.value?.total) return 'no cable rows yet'
+
+  const testRemaining =
+    (cableMatrixSummary.value?.total || 0) - (cableMatrixSummary.value?.testOk || 0)
+  const originRemaining =
+    (cableMatrixSummary.value?.total || 0) - (cableMatrixSummary.value?.labelOriginOk || 0)
+  const endRemaining =
+    (cableMatrixSummary.value?.total || 0) - (cableMatrixSummary.value?.labelEndOk || 0)
+
+  return `${testRemaining} test no - ${originRemaining} origin no - ${endRemaining} end no`
+})
 const topbarTitle = computed(() =>
   site.value ? `${site.value.code || ''} ${site.value.name}`.trim() : 'Site'
 )
@@ -78,6 +95,10 @@ function openSettings() {
 
 function openChecklist() {
   router.push(`/site/${siteId}/checklist`)
+}
+
+function openCableMatrix() {
+  router.push(`/site/${siteId}/cable-matrix`)
 }
 
 function openLatestEmailDraft() {
@@ -217,6 +238,10 @@ function formatDate(dateString) {
         <MaterialIcon name="checklist" />
         Checklist
       </button>
+      <button type="button" class="btn btn-ghost" @click="openCableMatrix">
+        <MaterialIcon name="cable" />
+        Cable matrix
+      </button>
       <button
         type="button"
         class="btn btn-ghost"
@@ -238,6 +263,7 @@ function formatDate(dateString) {
         <StatCard label="Confirmations" :value="confirms?.length || 0" accent="var(--confirm)" sub="all time" />
         <StatCard label="Progress updates" :value="reportsThisMonth" :sub="latestReportLabel" />
         <StatCard label="Checklist progress" :value="checklistValue" accent="var(--confirm)" :sub="checklistLabel" />
+        <StatCard label="Cable matrix" :value="cableMatrixValue" accent="var(--confirm)" :sub="cableMatrixLabel" />
       </div>
 
       <div class="col gap-3">
@@ -278,6 +304,15 @@ function formatDate(dateString) {
               <div class="title-md">Site checklist</div>
             </div>
             <div class="small">main and sub checks</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openCableMatrix">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="cable" />
+              </div>
+              <div class="title-md">Cable matrix</div>
+            </div>
+            <div class="small">cable checks and labels</div>
           </button>
         </div>
       </div>

@@ -89,6 +89,20 @@ db.version(7).stores({
   checklists: '++id, siteId, order',
 })
 
+db.version(8).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  cableMatrices: '++id, siteId, order',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }
@@ -123,6 +137,7 @@ async function cleanLegacyDemoData() {
     db.attachments,
     db.emailSettings,
     db.checklists,
+    db.cableMatrices,
     async () => {
       await Promise.all([
         db.sites.clear(),
@@ -132,6 +147,7 @@ async function cleanLegacyDemoData() {
         db.attachments.clear(),
         db.emailSettings.clear(),
         db.checklists.clear(),
+        db.cableMatrices.clear(),
       ])
     }
   )

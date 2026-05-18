@@ -27,6 +27,11 @@ const routes = [
     component: () => import('../views/ChecklistView.vue'),
   },
   {
+    path: '/site/:id/cable-matrix',
+    name: 'site-cable-matrix',
+    component: () => import('../views/CableMatrixView.vue'),
+  },
+  {
     path: '/site/:id/report/new',
     name: 'new-report',
     component: () => import('../views/NewReportView.vue'),
