@@ -16,6 +16,8 @@ export function useChecklists(siteId) {
   const summary = computed(() => summarizeChecklists(checklists.value || []))
 
   async function addChecklist(checklist) {
+    await assertChecklistTitleUnique(checklist.siteId, checklist.title)
+
     const siteChecklists = await db.checklists.where('siteId').equals(checklist.siteId).toArray()
     const nextOrder =
       siteChecklists.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
@@ -23,6 +25,7 @@ export function useChecklists(siteId) {
     return await db.checklists.add({
       siteId: checklist.siteId,
       title: checklist.title.trim(),
+      description: checklist.description?.trim() || '',
       order: nextOrder,
       items: [],
       createdAt: new Date().toISOString(),
@@ -42,6 +45,10 @@ export function useChecklists(siteId) {
   }
 
   async function renameChecklist(id, title) {
+    const checklist = await db.checklists.get(Number(id))
+    if (!checklist) return
+
+    await assertChecklistTitleUnique(checklist.siteId, title, checklist.id)
     return await updateChecklist(id, { title: title.trim() })
   }
 
@@ -55,6 +62,7 @@ export function useChecklists(siteId) {
         id: createItemId(),
         title: title.trim(),
         status: CHECKLIST_STATUS.TODO,
+        comment: '',
       },
     ]
 
@@ -79,6 +87,12 @@ export function useChecklists(siteId) {
   async function setSubItemStatus(checklistId, itemId, status) {
     return await updateSubItem(checklistId, itemId, {
       status: normalizeStatus(status),
+    })
+  }
+
+  async function setSubItemComment(checklistId, itemId, comment) {
+    return await updateSubItem(checklistId, itemId, {
+      comment: String(comment || '').trim(),
     })
   }
 
@@ -124,6 +138,7 @@ export function useChecklists(siteId) {
               id: createItemId(),
               title: itemTitle,
               status: CHECKLIST_STATUS.TODO,
+              comment: '',
             }))
 
           summary.skippedSubItems += normalizedItems.length - freshItems.length
@@ -151,6 +166,7 @@ export function useChecklists(siteId) {
             id: createItemId(),
             title: itemTitle,
             status: CHECKLIST_STATUS.TODO,
+            comment: '',
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -167,6 +183,49 @@ export function useChecklists(siteId) {
     return summary
   }
 
+  async function reorderChecklists(orderedIds) {
+    const ids = orderedIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id))
+
+    if (!ids.length) return
+
+    await db.transaction('rw', db.checklists, async () => {
+      for (let index = 0; index < ids.length; index += 1) {
+        await db.checklists.update(ids[index], {
+          order: index + 1,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    })
+  }
+
+  async function duplicateChecklist(id, newTitle) {
+    const checklist = await db.checklists.get(Number(id))
+    if (!checklist) return
+
+    await assertChecklistTitleUnique(checklist.siteId, newTitle)
+
+    const siteChecklists = await db.checklists.where('siteId').equals(checklist.siteId).toArray()
+    const nextOrder =
+      siteChecklists.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
+
+    return await db.checklists.add({
+      siteId: checklist.siteId,
+      title: newTitle.trim(),
+      description: checklist.description || '',
+      order: nextOrder,
+      items: (checklist.items || []).map((item) => ({
+        id: createItemId(),
+        title: item.title,
+        status: item.status || CHECKLIST_STATUS.TODO,
+        comment: item.comment || '',
+      })),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
   return {
     checklists,
     summary,
@@ -177,8 +236,11 @@ export function useChecklists(siteId) {
     addSubItem,
     renameSubItem,
     setSubItemStatus,
+    setSubItemComment,
     deleteSubItem,
     importChecklistGroups,
+    reorderChecklists,
+    duplicateChecklist,
   }
 }
 
@@ -250,4 +312,20 @@ function uniqueTitles(items) {
   }
 
   return unique
+}
+
+async function assertChecklistTitleUnique(siteId, title, excludeId = null) {
+  const normalizedTitle = normalizeKey(title)
+  if (!normalizedTitle) {
+    throw new Error('Main checklist name is required.')
+  }
+
+  const siteChecklists = await db.checklists.where('siteId').equals(siteId).toArray()
+  const duplicate = siteChecklists.find(
+    (item) => item.id !== excludeId && normalizeKey(item.title) === normalizedTitle
+  )
+
+  if (duplicate) {
+    throw new Error('Main checklist name already exists. Please use a different name.')
+  }
 }
