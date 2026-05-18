@@ -10,7 +10,17 @@ const TEMPLATE_HEADERS = [
   'Cable length Est. + 10 %',
 ]
 
-const EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const CABLE_CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const CABLE_CHECKLIST_EXPORT_COLS = [
+  { wch: 22 },
+  { wch: 34 },
+  { wch: 14 },
+  { wch: 58 },
+  { wch: 20 },
+  { wch: 14 },
+  { wch: 22 },
+  { wch: 52 },
+]
 
 export function downloadCableChecklistTemplate() {
   const workbook = XLSX.utils.book_new()
@@ -31,9 +41,18 @@ export function downloadCableChecklistTemplate() {
 
 export function downloadCableChecklistExport(rows, siteName = 'site') {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    EXPORT_HEADERS,
-    ...rows.map((row) => [
+  const worksheet = XLSX.utils.aoa_to_sheet(buildCableChecklistExportRows(rows))
+
+  worksheet['!cols'] = CABLE_CHECKLIST_EXPORT_COLS
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Checklist Export')
+  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-cable-checklist.xlsx`)
+}
+
+export function buildCableChecklistExportRows(rows) {
+  return [
+    CABLE_CHECKLIST_EXPORT_HEADERS,
+    ...(rows || []).map((row) => [
       row.level || '',
       row.cableLabel || '',
       row.cableId || '',
@@ -43,21 +62,7 @@ export function downloadCableChecklistExport(rows, siteName = 'site') {
       row.cableLength || '',
       formatChangeHistory(row.changeHistory),
     ]),
-  ])
-
-  worksheet['!cols'] = [
-    { wch: 22 },
-    { wch: 34 },
-    { wch: 14 },
-    { wch: 58 },
-    { wch: 20 },
-    { wch: 14 },
-    { wch: 22 },
-    { wch: 52 },
   ]
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Checklist Export')
-  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-cable-checklist.xlsx`)
 }
 
 export async function parseCableChecklistSpreadsheet(file) {

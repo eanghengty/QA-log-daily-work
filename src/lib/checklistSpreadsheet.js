@@ -1,7 +1,8 @@
 import * as XLSX from 'xlsx'
 
 const TEMPLATE_HEADERS = ['Main task', 'Sub task', 'Status', 'Comment']
-const EXPORT_HEADERS = ['Main task', 'Sub task', 'Status', 'Comment', 'Log']
+export const CHECKLIST_EXPORT_HEADERS = ['Main task', 'Sub task', 'Status', 'Comment', 'Log']
+export const CHECKLIST_EXPORT_COLS = [{ wch: 28 }, { wch: 40 }, { wch: 14 }, { wch: 36 }, { wch: 52 }]
 const STATUS_DONE = 'done'
 const STATUS_NOT_DONE = 'not done'
 const STATUS_NA = 'n/a'
@@ -17,16 +18,17 @@ export function downloadChecklistTemplate() {
 
 export function downloadChecklistExport(checklists, siteName = 'site') {
   const workbook = XLSX.utils.book_new()
-  const rows = [
-    EXPORT_HEADERS,
-    ...buildChecklistRows(checklists || []),
-  ]
+  const rows = buildChecklistExportRows(checklists || [])
   const worksheet = XLSX.utils.aoa_to_sheet(rows)
 
-  worksheet['!cols'] = [{ wch: 28 }, { wch: 40 }, { wch: 14 }, { wch: 36 }, { wch: 52 }]
+  worksheet['!cols'] = CHECKLIST_EXPORT_COLS
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Checklist Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-checklist-export.xlsx`)
+}
+
+export function buildChecklistExportRows(checklists) {
+  return [CHECKLIST_EXPORT_HEADERS, ...buildChecklistRows(checklists || [])]
 }
 
 export async function parseChecklistSpreadsheet(file) {

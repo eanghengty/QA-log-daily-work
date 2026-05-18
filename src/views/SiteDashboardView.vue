@@ -11,6 +11,7 @@ import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useDcplChecklist } from '../composables/useDcplChecklist.js'
 import { useCableChecklist } from '../composables/useCableChecklist.js'
 import { exportSite, importSite } from '../lib/backup.js'
+import { exportSiteWorkbook } from '../lib/siteWorkbookSpreadsheet.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
@@ -190,6 +191,11 @@ async function handleExportSite() {
   await logAction('Site exported', `${siteId} — ${site.value?.name || ''}`)
 }
 
+async function handleExportSiteWorkbook() {
+  await exportSiteWorkbook(siteId)
+  await logAction('Site Excel exported', `${siteId} — ${site.value?.name || ''}`)
+}
+
 function triggerImportSite() {
   importFileRef.value?.click()
 }
@@ -222,13 +228,18 @@ async function handleImportFile(event) {
     return
   }
 
-  if (!window.confirm(`Import will replace all data for "${site.value?.name}". Your current data will be exported first as a backup. Continue?`)) return
+  const importSummary = summarizeImportPayload(data)
+  if (!window.confirm(`Import will replace all data for "${site.value?.name}" including updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist.
+
+Incoming file: ${importSummary}
+
+Your current data will be exported first as a backup. Continue?`)) return
 
   try {
     await exportSite(siteId)
     await importSite(data)
-    await logAction('Site imported', `${siteId} — ${site.value?.name || ''}`)
-    siteStatus.value = 'Imported successfully — current data was backed up first.'
+    await logAction('Site imported', `${siteId} ??? ${site.value?.name || ''}`)
+    siteStatus.value = `Imported successfully ??? ${importSummary}. Current data was backed up first.`
     setTimeout(() => { siteStatus.value = '' }, 4000)
   } catch (err) {
     siteStatus.value = `Import failed: ${err.message}`
@@ -256,6 +267,20 @@ function formatDate(dateString) {
 function formatCountLength(value) {
   return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 2) : '0'
 }
+
+function summarizeImportPayload(data) {
+  const summary = data?.summary || {}
+  const reports = summary.reports ?? data?.reports?.length ?? 0
+  const issues = summary.issues ?? data?.issues?.length ?? 0
+  const confirms = summary.confirms ?? data?.confirms?.length ?? 0
+  const checklists = summary.checklists ?? data?.checklists?.length ?? 0
+  const cableMatrices = summary.cableMatrices ?? data?.cableMatrices?.length ?? 0
+  const antennaChecklists = summary.antennaChecklists ?? data?.antennaChecklists?.length ?? 0
+  const dcplChecklists = summary.dcplChecklists ?? data?.dcplChecklists?.length ?? 0
+  const cableChecklists = summary.cableChecklists ?? data?.cableChecklists?.length ?? 0
+
+  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${cableMatrices} cable matrix rows, ${antennaChecklists} antenna rows, ${dcplChecklists} DCPL rows, ${cableChecklists} cable checklist rows`
+}
 </script>
 
 <template>
@@ -266,9 +291,13 @@ function formatCountLength(value) {
         <MaterialIcon name="upload" />
         Import
       </button>
+      <button type="button" class="btn btn-ghost" @click="handleExportSiteWorkbook">
+        <MaterialIcon name="table_view" />
+        Export Excel
+      </button>
       <button type="button" class="btn btn-ghost" @click="handleExportSite">
         <MaterialIcon name="download" />
-        Export
+        Export JSON
       </button>
       <button type="button" class="btn btn-ghost" @click="openSettings">
         <MaterialIcon name="settings" />

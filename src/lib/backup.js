@@ -87,6 +87,17 @@ export async function exportSite(siteId) {
     _version: 1,
     _type: 'site',
     _exportedAt: new Date().toISOString(),
+    summary: buildSiteSummary({
+      reports,
+      issues,
+      confirms,
+      checklists,
+      cableMatrices,
+      antennaChecklists,
+      dcplChecklists,
+      cableChecklists,
+      attachments,
+    }),
     site,
     reports,
     issues,
@@ -257,4 +268,18 @@ function blobToBase64(blob) {
 async function base64ToBlob(base64, type) {
   const res = await fetch(base64)
   return res.blob()
+}
+
+function buildSiteSummary(data) {
+  return {
+    reports: data.reports?.length || 0,
+    issues: data.issues?.length || 0,
+    confirms: data.confirms?.length || 0,
+    checklists: data.checklists?.length || 0,
+    cableMatrices: data.cableMatrices?.length || 0,
+    antennaChecklists: data.antennaChecklists?.length || 0,
+    dcplChecklists: data.dcplChecklists?.length || 0,
+    cableChecklists: data.cableChecklists?.length || 0,
+    attachments: data.attachments?.length || 0,
+  }
 }

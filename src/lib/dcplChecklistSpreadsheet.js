@@ -11,7 +11,18 @@ const TEMPLATE_HEADERS = [
   'Comment',
 ]
 
-const EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const DCPL_CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const DCPL_CHECKLIST_EXPORT_COLS = [
+  { wch: 22 },
+  { wch: 28 },
+  { wch: 18 },
+  { wch: 20 },
+  { wch: 14 },
+  { wch: 22 },
+  { wch: 10 },
+  { wch: 52 },
+  { wch: 52 },
+]
 
 export function downloadDcplChecklistTemplate() {
   const workbook = XLSX.utils.book_new()
@@ -33,9 +44,18 @@ export function downloadDcplChecklistTemplate() {
 
 export function downloadDcplChecklistExport(rows, siteName = 'site') {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    EXPORT_HEADERS,
-    ...rows.map((row) => [
+  const worksheet = XLSX.utils.aoa_to_sheet(buildDcplChecklistExportRows(rows))
+
+  worksheet['!cols'] = DCPL_CHECKLIST_EXPORT_COLS
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'DCPL Checklist Export')
+  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-dcpl-checklist.xlsx`)
+}
+
+export function buildDcplChecklistExportRows(rows) {
+  return [
+    DCPL_CHECKLIST_EXPORT_HEADERS,
+    ...(rows || []).map((row) => [
       row.level || '',
       row.description || '',
       row.make || '',
@@ -46,22 +66,7 @@ export function downloadDcplChecklistExport(rows, siteName = 'site') {
       row.comment || '',
       formatChangeHistory(row.changeHistory),
     ]),
-  ])
-
-  worksheet['!cols'] = [
-    { wch: 22 },
-    { wch: 28 },
-    { wch: 18 },
-    { wch: 20 },
-    { wch: 14 },
-    { wch: 22 },
-    { wch: 10 },
-    { wch: 52 },
-    { wch: 52 },
   ]
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'DCPL Checklist Export')
-  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-dcpl-checklist.xlsx`)
 }
 
 export async function parseDcplChecklistSpreadsheet(file) {

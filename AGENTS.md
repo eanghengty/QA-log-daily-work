@@ -102,6 +102,16 @@ or `npm.cmd run dev` when that happens.
 - Cable checklist import must preserve Excel date cells in `Sweep test received` as actual dates
   rather than raw Excel serial numbers.
 
+### Site Import / Export (`src/lib/backup.js`)
+
+- `exportSite()` must include all per-site records for progress updates, blockers, confirmations,
+  site checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, email settings,
+  and linked attachments.
+- Site export payloads include a `summary` block so the site dashboard import flow can show the
+  user exactly what the incoming file contains before replacing current site data.
+- `importSite()` must restore all of those tables for the selected site, not just the original
+  checklist and cable matrix data.
+
 ### Email (`src/lib/email.js`)
 
 - `buildEmailSubject()` and `buildEmailBody()` compose site progress email content from the
@@ -194,6 +204,9 @@ or `npm.cmd run dev` when that happens.
   record rather than their own Dexie table.
 - **Attachments**: store field proof through `AttachmentDropzone` / `useAttachments`; persist
   attachment ID arrays as plain arrays, not Vue reactive proxies.
+- **Site import/export**: site-level import and export from the site dashboard must always cover
+  updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist,
+  cable checklist, email settings, and linked attachments.
 
 ## Current Routes
 
@@ -258,5 +271,7 @@ Then check the app in the browser:
 25. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
     picker, and saved dates remain correct on reload.
 26. Cable checklist summary uses cable-length totals rather than serial-number totals.
-27. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+27. Site dashboard export includes the newer antenna, DCPL, and cable checklist data, and site
+    import confirmation clearly describes the incoming counts before replacing current site data.
+28. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

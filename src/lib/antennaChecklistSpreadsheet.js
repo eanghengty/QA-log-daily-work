@@ -10,7 +10,17 @@ const TEMPLATE_HEADERS = [
   'Comment',
 ]
 
-const EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const ANTENNA_CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const ANTENNA_CHECKLIST_EXPORT_COLS = [
+  { wch: 22 },
+  { wch: 26 },
+  { wch: 18 },
+  { wch: 24 },
+  { wch: 22 },
+  { wch: 22 },
+  { wch: 48 },
+  { wch: 52 },
+]
 
 export function downloadAntennaChecklistTemplate() {
   const workbook = XLSX.utils.book_new()
@@ -31,9 +41,18 @@ export function downloadAntennaChecklistTemplate() {
 
 export function downloadAntennaChecklistExport(rows, siteName = 'site') {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    EXPORT_HEADERS,
-    ...rows.map((row) => [
+  const worksheet = XLSX.utils.aoa_to_sheet(buildAntennaChecklistExportRows(rows))
+
+  worksheet['!cols'] = ANTENNA_CHECKLIST_EXPORT_COLS
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Antenna Checklist Export')
+  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-antenna-checklist.xlsx`)
+}
+
+export function buildAntennaChecklistExportRows(rows) {
+  return [
+    ANTENNA_CHECKLIST_EXPORT_HEADERS,
+    ...(rows || []).map((row) => [
       row.level || '',
       row.description || '',
       row.make || '',
@@ -43,21 +62,7 @@ export function downloadAntennaChecklistExport(rows, siteName = 'site') {
       row.comment || '',
       formatChangeHistory(row.changeHistory),
     ]),
-  ])
-
-  worksheet['!cols'] = [
-    { wch: 22 },
-    { wch: 26 },
-    { wch: 18 },
-    { wch: 24 },
-    { wch: 22 },
-    { wch: 22 },
-    { wch: 48 },
-    { wch: 52 },
   ]
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Antenna Checklist Export')
-  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-antenna-checklist.xlsx`)
 }
 
 export async function parseAntennaChecklistSpreadsheet(file) {

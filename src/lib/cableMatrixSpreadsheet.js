@@ -9,7 +9,7 @@ const TEMPLATE_HEADERS = [
   'Label origin',
   'Label end',
 ]
-const EXPORT_HEADERS = [
+export const CABLE_MATRIX_EXPORT_HEADERS = [
   'Cable Number',
   'Cable label at origin end destination',
   'From',
@@ -19,6 +19,7 @@ const EXPORT_HEADERS = [
   'Label end',
   'Log',
 ]
+export const CABLE_MATRIX_EXPORT_COLS = [{ wch: 18 }, { wch: 36 }, { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 52 }]
 
 export function downloadCableMatrixTemplate() {
   const workbook = XLSX.utils.book_new()
@@ -31,9 +32,18 @@ export function downloadCableMatrixTemplate() {
 
 export function downloadCableMatrixExport(rows, siteName = 'site') {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    EXPORT_HEADERS,
-    ...rows.map((row) => [
+  const worksheet = XLSX.utils.aoa_to_sheet(buildCableMatrixExportRows(rows))
+
+  worksheet['!cols'] = CABLE_MATRIX_EXPORT_COLS
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Matrix Export')
+  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-cable-matrix.xlsx`)
+}
+
+export function buildCableMatrixExportRows(rows) {
+  return [
+    CABLE_MATRIX_EXPORT_HEADERS,
+    ...(rows || []).map((row) => [
       row.cableNumber || '',
       row.cableLabel || '',
       row.from || '',
@@ -43,12 +53,7 @@ export function downloadCableMatrixExport(rows, siteName = 'site') {
       formatStatus(row.labelEndStatus),
       formatStatusHistory(row.statusHistory),
     ]),
-  ])
-
-  worksheet['!cols'] = [{ wch: 18 }, { wch: 36 }, { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 52 }]
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Matrix Export')
-  XLSX.writeFile(workbook, `${toFileSlug(siteName)}-cable-matrix.xlsx`)
+  ]
 }
 
 export async function parseCableMatrixSpreadsheet(file) {
