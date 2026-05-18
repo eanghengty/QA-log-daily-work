@@ -145,7 +145,7 @@ async function downloadDraft() {
     </div>
 
     <div class="row gap-5 p-5 grow" style="overflow: auto">
-      <div class="col gap-3" style="width: 280px; flex-shrink: 0">
+      <div class="col gap-3" style="flex: 0 0 300px">
         <div class="box p-4 col gap-3">
           <div class="label">Recipients</div>
 

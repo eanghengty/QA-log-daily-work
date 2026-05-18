@@ -1,13 +1,14 @@
 import { db } from '../db/index.js'
 
 export async function exportBackup() {
-  const [sites, reports, issues, confirms, emailSettings, attachments] = await Promise.all([
+  const [sites, reports, issues, confirms, emailSettings, attachments, checklists] = await Promise.all([
     db.sites.toArray(),
     db.reports.toArray(),
     db.issues.toArray(),
     db.confirms.toArray(),
     db.emailSettings.toArray(),
     db.attachments.toArray(),
+    db.checklists.toArray(),
   ])
 
   const attachmentsWithBase64 = await Promise.all(
@@ -29,6 +30,7 @@ export async function exportBackup() {
     confirms,
     emailSettings,
     attachments: attachmentsWithBase64,
+    checklists,
   }
 
   const json = JSON.stringify(backup, null, 2)
@@ -42,12 +44,13 @@ export async function exportBackup() {
 }
 
 export async function exportSite(siteId) {
-  const [site, reports, issues, confirms, emailSettings] = await Promise.all([
+  const [site, reports, issues, confirms, emailSettings, checklists] = await Promise.all([
     db.sites.get(siteId),
     db.reports.where('siteId').equals(siteId).toArray(),
     db.issues.where('siteId').equals(siteId).toArray(),
     db.confirms.where('siteId').equals(siteId).toArray(),
     db.emailSettings.get(siteId),
+    db.checklists.where('siteId').equals(siteId).sortBy('order'),
   ])
 
   const allAttachmentIds = [
@@ -76,6 +79,7 @@ export async function exportSite(siteId) {
     reports,
     issues,
     confirms,
+    checklists,
     emailSettings: emailSettings || null,
     attachments: attachmentsWithBase64,
   }
@@ -118,23 +122,26 @@ export async function importSite(jsonOrObject) {
     reports: (await db.reports.where('siteId').equals(siteId).primaryKeys()),
     issues: (await db.issues.where('siteId').equals(siteId).primaryKeys()),
     confirms: (await db.confirms.where('siteId').equals(siteId).primaryKeys()),
+    checklists: (await db.checklists.where('siteId').equals(siteId).primaryKeys()),
   }
 
   await db.transaction(
     'rw',
-    db.sites, db.reports, db.issues, db.confirms, db.emailSettings, db.attachments,
+    db.sites, db.reports, db.issues, db.confirms, db.emailSettings, db.attachments, db.checklists,
     async () => {
       await db.sites.put(data.site)
       await Promise.all([
         db.reports.bulkDelete(existingIds.reports),
         db.issues.bulkDelete(existingIds.issues),
         db.confirms.bulkDelete(existingIds.confirms),
+        db.checklists.bulkDelete(existingIds.checklists),
       ])
       await Promise.all([
         db.reports.bulkPut(data.reports || []),
         db.issues.bulkPut(data.issues || []),
         db.confirms.bulkPut(data.confirms || []),
         db.attachments.bulkPut(attachmentsRestored),
+        db.checklists.bulkPut(data.checklists || []),
       ])
       if (data.emailSettings) await db.emailSettings.put(data.emailSettings)
     },
@@ -174,6 +181,7 @@ export async function importBackup(json) {
     db.confirms,
     db.emailSettings,
     db.attachments,
+    db.checklists,
     async () => {
       await Promise.all([
         db.sites.clear(),
@@ -182,6 +190,7 @@ export async function importBackup(json) {
         db.confirms.clear(),
         db.emailSettings.clear(),
         db.attachments.clear(),
+        db.checklists.clear(),
       ])
       await Promise.all([
         db.sites.bulkPut(data.sites),
@@ -190,6 +199,7 @@ export async function importBackup(json) {
         db.confirms.bulkPut(data.confirms || []),
         db.emailSettings.bulkPut(data.emailSettings || []),
         db.attachments.bulkPut(attachmentsRestored),
+        db.checklists.bulkPut(data.checklists || []),
       ])
     },
   )

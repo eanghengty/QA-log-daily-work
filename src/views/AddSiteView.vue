@@ -105,7 +105,7 @@ function emptyForm() {
       </div>
     </div>
 
-    <div class="col gap-4 p-5" style="max-width: 420px">
+    <div class="col gap-4 p-5">
       <div class="col gap-2">
         <div class="label">Site ID</div>
         <input v-model="form.id" class="field" :disabled="isEdit" />
@@ -141,7 +141,7 @@ function emptyForm() {
 
       <div v-if="isEdit" class="box-dash p-3 col gap-2" style="margin-top: 12px">
         <div class="label">Remove site</div>
-        <div class="small">Deletes this site and its progress updates, blockers, confirmations, and email settings.</div>
+        <div class="small">Deletes this site and its progress updates, blockers, confirmations, checklists, and email settings.</div>
         <button
           type="button"
           class="btn"

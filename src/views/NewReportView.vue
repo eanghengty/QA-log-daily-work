@@ -213,7 +213,7 @@ function currentTime() {
         </div>
       </div>
 
-      <div class="col gap-3" style="width: 300px">
+      <div class="col gap-3" style="flex: 0 0 320px">
         <div class="box p-4 col gap-3">
           <div class="label">After save</div>
           <div class="row items-center gap-2" style="font-size: 12px">

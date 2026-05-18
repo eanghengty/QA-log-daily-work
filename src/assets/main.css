@@ -97,6 +97,7 @@ textarea {
   border: 1.2px solid var(--ink); border-radius: 999px;
   font-size: 11px; background: var(--paper);
 }
+.chip-neutral { background: var(--paper-2); border-color: var(--line-2); color: var(--ink-2); }
 .chip-issue   { background: var(--issue-bg);   border-color: var(--issue);   color: #7a4810; }
 .chip-confirm { background: var(--confirm-bg); border-color: var(--confirm); color: #2f4a2c; }
 .chip-pending { background: #fde0dc;           border-color: var(--pending); color: #6e1d12; }

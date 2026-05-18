@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
+import { useChecklists } from '../composables/useChecklists.js'
 import { exportSite, importSite } from '../lib/backup.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
@@ -20,6 +21,7 @@ const { data: site } = useSiteById(siteId)
 const { reports, deleteReport } = useReports(siteId)
 const { issues, pendingIssues, deleteIssue } = useIssues(siteId)
 const { confirms, deleteConfirm } = useConfirms(siteId)
+const { summary: checklistSummary } = useChecklists(siteId)
 const { logAction } = useActivityLog()
 
 const sortedReports = computed(() => [...(reports.value || [])].sort(compareReportsDesc))
@@ -41,6 +43,16 @@ const pendingSummary = computed(() =>
 const latestReportLabel = computed(() =>
   latestReport.value ? `last: ${formatDate(latestReport.value.date)}` : 'no updates yet'
 )
+const checklistValue = computed(() =>
+  `${checklistSummary.value?.done || 0}/${checklistSummary.value?.applicable || 0}`
+)
+const checklistLabel = computed(() => {
+  if (!checklistSummary.value?.total) return 'no sub checks yet'
+
+  const todo = checklistSummary.value.todo || 0
+  const na = checklistSummary.value.na || 0
+  return `${todo} not done - ${na} N/A`
+})
 const topbarTitle = computed(() =>
   site.value ? `${site.value.code || ''} ${site.value.name}`.trim() : 'Site'
 )
@@ -62,6 +74,10 @@ function saveConfirm() {
 
 function openSettings() {
   router.push(`/site/${siteId}/settings`)
+}
+
+function openChecklist() {
+  router.push(`/site/${siteId}/checklist`)
 }
 
 function openLatestEmailDraft() {
@@ -197,6 +213,10 @@ function formatDate(dateString) {
         <MaterialIcon name="settings" />
         Site settings
       </button>
+      <button type="button" class="btn btn-ghost" @click="openChecklist">
+        <MaterialIcon name="checklist" />
+        Checklist
+      </button>
       <button
         type="button"
         class="btn btn-ghost"
@@ -217,6 +237,7 @@ function formatDate(dateString) {
         <StatCard label="Open blockers" :value="pendingIssues?.length || 0" accent="var(--issue)" :sub="pendingSummary" />
         <StatCard label="Confirmations" :value="confirms?.length || 0" accent="var(--confirm)" sub="all time" />
         <StatCard label="Progress updates" :value="reportsThisMonth" :sub="latestReportLabel" />
+        <StatCard label="Checklist progress" :value="checklistValue" accent="var(--confirm)" :sub="checklistLabel" />
       </div>
 
       <div class="col gap-3">
@@ -248,6 +269,15 @@ function formatDate(dateString) {
               <div class="title-md">Save confirmation</div>
             </div>
             <div class="small">capture sign-off</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openChecklist">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="checklist" />
+              </div>
+              <div class="title-md">Site checklist</div>
+            </div>
+            <div class="small">main and sub checks</div>
           </button>
         </div>
       </div>

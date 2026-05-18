@@ -176,7 +176,7 @@ function emptyForm() {
         </div>
       </div>
 
-      <div class="col gap-3" style="width: 280px">
+      <div class="col gap-3" style="flex: 0 0 300px">
         <div class="box p-4 col gap-3">
           <div class="label">Status</div>
           <div class="row gap-2" style="flex-wrap: wrap">

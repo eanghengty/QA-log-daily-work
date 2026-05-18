@@ -22,6 +22,11 @@ const routes = [
     component: () => import('../views/AddSiteView.vue'),
   },
   {
+    path: '/site/:id/checklist',
+    name: 'site-checklist',
+    component: () => import('../views/ChecklistView.vue'),
+  },
+  {
     path: '/site/:id/report/new',
     name: 'new-report',
     component: () => import('../views/NewReportView.vue'),

@@ -166,7 +166,7 @@ function emptyForm() {
         </div>
       </div>
 
-      <div class="col gap-3" style="width: 280px">
+      <div class="col gap-3" style="flex: 0 0 300px">
         <div class="box p-4 col gap-2">
           <div class="label">Why confirmations matter</div>
           <div style="font-size: 12px; color: var(--ink-2); line-height: 1.45">When a supervisor, client, or crew lead signs off, capture the proof beside the note so the site history has a clear evidence trail.</div>
