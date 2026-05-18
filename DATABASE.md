@@ -6,8 +6,180 @@ This app is client-only. All persistent data is stored in browser IndexedDB thro
 
 - Name: `qa-tracker`
 - Library: `Dexie`
-- Current schema version: `8`
+- Current schema version: `11`
 - Source: [src/db/index.js](C:\Users\Hengty(Jack)Eang\OneDrive - SkyAus Infrastructure Pty Ltd\Desktop\Self Induction\Claude app\QA daily work\qa-tracker\src\db\index.js)
+
+## Entity Diagram
+
+```mermaid
+erDiagram
+  sites ||--o{ reports : "siteId"
+  sites ||--o{ issues : "siteId"
+  sites ||--o{ confirms : "siteId"
+  sites ||--o| emailSettings : "siteId"
+  sites ||--o{ checklists : "siteId"
+  sites ||--o{ cableMatrices : "siteId"
+  sites ||--o{ antennaChecklists : "siteId"
+  sites ||--o{ dcplChecklists : "siteId"
+  sites ||--o{ cableChecklists : "siteId"
+
+  reports }o--o{ issues : "linkedIssueIds[]"
+  reports }o--o{ confirms : "linkedConfirmIds[]"
+  reports }o--o{ attachments : "attachmentIds[]"
+  issues }o--o{ attachments : "attachmentIds[]"
+  confirms }o--o{ attachments : "attachmentIds[]"
+
+  sites {
+    string id PK
+    string name
+    string code
+    string url "Location / area"
+    string comment
+    string createdAt
+  }
+
+  reports {
+    number id PK
+    string siteId FK
+    string date
+    string time
+    string notes
+    number[] attachmentIds
+    number[] linkedIssueIds
+    number[] linkedConfirmIds
+    string createdAt
+  }
+
+  issues {
+    number id PK
+    string siteId FK
+    string code
+    string title
+    string date
+    string priority
+    string status
+    number[] attachmentIds
+    string createdAt
+  }
+
+  confirms {
+    number id PK
+    string siteId FK
+    string code
+    string title
+    string date
+    string confirmedBy
+    number[] attachmentIds
+    string createdAt
+  }
+
+  attachments {
+    number id PK
+    blob blob
+    string name
+    number size
+    string type
+    string createdAt
+  }
+
+  emailSettings {
+    string siteId PK
+    string to
+    string cc
+    string defaultSubject
+  }
+
+  checklists {
+    number id PK
+    string siteId FK
+    string title
+    string description
+    number order
+    object[] items
+    string createdAt
+    string updatedAt
+  }
+
+  cableMatrices {
+    number id PK
+    string siteId FK
+    number order
+    string cableNumber
+    string cableLabel
+    string from
+    string to
+    string testStatus
+    string labelOriginStatus
+    string labelEndStatus
+    object[] statusHistory
+  }
+
+  antennaChecklists {
+    number id PK
+    string siteId FK
+    number order
+    string level
+    string description
+    string make
+    string model
+    string serialNumber
+    string assetTag
+    string comment
+    object[] changeHistory
+  }
+
+  dcplChecklists {
+    number id PK
+    string siteId FK
+    number order
+    string level
+    string description
+    string make
+    string model
+    string label
+    string serialNumber
+    string dbValue
+    string comment
+    object[] changeHistory
+  }
+
+  cableChecklists {
+    number id PK
+    string siteId FK
+    number order
+    string level
+    string cableLabel
+    string cableId
+    string hopCriteria
+    string sweepTestReceived
+    string remark
+    string cableLength
+    object[] changeHistory
+  }
+
+  scopes {
+    number id PK
+    string name
+  }
+
+  activityLog {
+    number id PK
+    string action
+    string detail
+    string at
+  }
+
+  confirmSources {
+    number id PK
+    string name
+  }
+```
+
+Notes:
+- `reports`, `issues`, and `confirms` use array references to `attachments` rather than join tables.
+- `reports` also keep array references to linked blockers and linked confirmations.
+- `checklists.items`, `cableMatrices.statusHistory`, and the asset-board `changeHistory` arrays are embedded inside parent records, not separate tables.
+- `scopes`, `activityLog`, and `confirmSources` are support tables and do not currently have hard foreign-key links in IndexedDB.
 
 ## Schema History
 
@@ -17,6 +189,9 @@ This app is client-only. All persistent data is stored in browser IndexedDB thro
 - `v6` added `confirmSources`
 - `v7` added `checklists`
 - `v8` added `cableMatrices`
+- `v9` added `antennaChecklists`
+- `v10` added `dcplChecklists`
+- `v11` added `cableChecklists`
 
 ## Current Tables
 
@@ -31,13 +206,12 @@ Common fields:
 - `code`
 - `url`
   user-facing meaning: `Location / area`
-- `scopeId` or related scope fields when used by the UI
 - `comment`
 - `createdAt`
 
 Notes:
 - site records are created in [useSites.js](C:\Users\Hengty(Jack)Eang\OneDrive - SkyAus Infrastructure Pty Ltd\Desktop\Self Induction\Claude app\QA daily work\qa-tracker\src\composables\useSites.js)
-- deleting a site also deletes related `reports`, `issues`, `confirms`, `checklists`, `cableMatrices`, and `emailSettings`
+- deleting a site also deletes related `reports`, `issues`, `confirms`, `checklists`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`, `cableChecklists`, and `emailSettings`
 
 ### `reports`
 
@@ -138,6 +312,7 @@ Fields:
 - `defaultSubject`
 
 Notes:
+- one row per site when saved
 - default fallback when no row exists:
   - `to: ''`
   - `cc: ''`
@@ -223,7 +398,7 @@ Checklist item `statusHistory` entry shape:
 
 Notes:
 - one record represents one main checklist
-- sub checklist rows live inside the parent record’s `items` array
+- sub checklist rows live inside the parent record's `items` array
 
 ### `cableMatrices`
 
@@ -285,6 +460,92 @@ Notes:
 - one record represents one cable matrix row
 - row order is persisted for drag reorder
 
+### `antennaChecklists`
+
+Primary key:
+- `id` auto-increment number
+
+Indexed fields:
+- `siteId`
+- `order`
+
+Record fields:
+- `id`
+- `siteId`
+- `order`
+- `level`
+- `description`
+- `make`
+- `model`
+- `serialNumber`
+- `assetTag`
+- `comment`
+- `changeHistory`
+- `createdAt`
+- `updatedAt`
+
+Notes:
+- one record represents one antenna asset row
+- row order is persisted for drag reorder
+
+### `dcplChecklists`
+
+Primary key:
+- `id` auto-increment number
+
+Indexed fields:
+- `siteId`
+- `order`
+
+Record fields:
+- `id`
+- `siteId`
+- `order`
+- `level`
+- `description`
+- `make`
+- `model`
+- `label`
+- `serialNumber`
+- `dbValue`
+- `comment`
+- `changeHistory`
+- `createdAt`
+- `updatedAt`
+
+Notes:
+- one record represents one DCPL asset row
+- row order is persisted for drag reorder
+
+### `cableChecklists`
+
+Primary key:
+- `id` auto-increment number
+
+Indexed fields:
+- `siteId`
+- `order`
+
+Record fields:
+- `id`
+- `siteId`
+- `order`
+- `level`
+- `cableLabel`
+- `cableId`
+- `hopCriteria`
+- `sweepTestReceived`
+- `remark`
+- `cableLength`
+- `changeHistory`
+- `createdAt`
+- `updatedAt`
+
+Notes:
+- one record represents one cable checklist row
+- row order is persisted for drag reorder
+- `sweepTestReceived` is stored as a date-like string in `YYYY-MM-DD` form when normalized by the app
+
 ## Backup / Import Coverage
 
 The following tables are included in full backup/export flows:
@@ -296,10 +557,13 @@ The following tables are included in full backup/export flows:
 - `attachments`
 - `checklists`
 - `cableMatrices`
+- `antennaChecklists`
+- `dcplChecklists`
+- `cableChecklists`
 
 Site-level export/import also includes:
 - the selected site record
-- all related reports, issues, confirms, attachments, checklists, and cable matrix rows
+- all related reports, issues, confirms, attachments, checklists, cable matrix rows, antenna checklist rows, DCPL checklist rows, and cable checklist rows
 
 Source:
 - [src/lib/backup.js](C:\Users\Hengty(Jack)Eang\OneDrive - SkyAus Infrastructure Pty Ltd\Desktop\Self Induction\Claude app\QA daily work\qa-tracker\src\lib\backup.js)
