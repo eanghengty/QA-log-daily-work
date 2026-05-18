@@ -11,7 +11,7 @@ generates an email draft from each update. There is no backend. All data lives i
 - **Tailwind CSS v4** via `@tailwindcss/vite` (`@import "tailwindcss"`)
 - **Dexie.js** for IndexedDB; no Pinia
 - **Material Symbols** via `src/components/MaterialIcon.vue`
-- **SheetJS (`xlsx`)** for checklist and cable matrix Excel template download, export, and import
+- **SheetJS (`xlsx`)** for checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist Excel template download, export, and import
 
 ## Commands
 
@@ -31,7 +31,8 @@ or `npm.cmd run dev` when that happens.
 
 - `index.js` defines the Dexie schema and `initDb()`.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
-  `checklists`, `cableMatrices`, plus supporting lookup/activity tables already in the app.
+  `checklists`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`, `cableChecklists`,
+  plus supporting lookup/activity tables already in the app.
 - The app starts empty. Do not add demo, dummy, placeholder, or hardcoded site records.
 - Internal table/field names still use `reports`, `issues`, and `confirms`, but the user-facing
   domain language is telecom progress updates, blockers, and approvals.
@@ -41,6 +42,13 @@ or `npm.cmd run dev` when that happens.
   sub checklist rows, including sub task status, comment, and local item ID.
 - `cableMatrices` stores one cable row per record, including cable number, cable label at origin
   end destination, `from`, `to`, test / label check statuses, drag order, and row-level change log.
+- `antennaChecklists` stores one antenna asset row per record, including `level`, `description`,
+  `make`, `model`, `serialNumber`, `assetTag`, `comment`, drag order, and row-level change log.
+- `dcplChecklists` stores one DCPL asset row per record, including `level`, `description`, `make`,
+  `model`, `label`, `serialNumber`, `dbValue`, `comment`, drag order, and row-level change log.
+- `cableChecklists` stores one cable checklist row per record, including `level`, `cableLabel`,
+  `cableId`, `hopCriteria`, `sweepTestReceived`, `remark`, `cableLength`, drag order, and
+  row-level change log.
 
 ### Reactive Store (`src/composables/`)
 
@@ -52,6 +60,13 @@ or `npm.cmd run dev` when that happens.
   Excel import merge logic, drag reorder persistence, and duplicate-name protection.
 - `useCableMatrix.js` owns per-site cable matrix CRUD, summary counts, Excel import merge logic,
   drag reorder persistence, and row-level change logging for statuses plus `from` / `to` edits.
+- `useAntennaChecklist.js` owns per-site antenna checklist CRUD, summary counts, Excel import,
+  drag reorder persistence, and row-level change logging.
+- `useDcplChecklist.js` owns per-site DCPL checklist CRUD, summary counts, Excel import,
+  drag reorder persistence, and row-level change logging.
+- `useCableChecklist.js` owns per-site cable checklist CRUD, summary counts, Excel import,
+  drag reorder persistence, cable-length totals, date handling for `sweepTestReceived`, and
+  row-level change logging.
 - Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
 - `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
@@ -75,6 +90,18 @@ or `npm.cmd run dev` when that happens.
 - `downloadCableMatrixExport()` exports current cable matrix rows with those columns plus `Log`.
 - `parseCableMatrixSpreadsheet()` reads the first worksheet and imports one cable row per sheet row.
 
+### Antenna / DCPL / Cable Checklist Excel (`src/lib/*ChecklistSpreadsheet.js`)
+
+- `antennaChecklistSpreadsheet.js` uses `LEVEL`, `Description`, `Make`, `Model`, `Serial Number`,
+  `Asset Tag / Label`, and `Comment` columns.
+- `dcplChecklistSpreadsheet.js` uses `LEVEL`, `Description`, `Make`, `Model`, `Label`,
+  `Serial Number`, `dB`, and `Comment` columns. Imports may also accept the old sample heading
+  `Post Installation Photo check` and map it into `Comment`.
+- `cableChecklistSpreadsheet.js` uses `LEVEL`, `Cable label`, `Cable ID`, `HOP Criteria`,
+  `Sweep test received`, `Remark`, and `Cable length Est. + 10 %` columns.
+- Cable checklist import must preserve Excel date cells in `Sweep test received` as actual dates
+  rather than raw Excel serial numbers.
+
 ### Email (`src/lib/email.js`)
 
 - `buildEmailSubject()` and `buildEmailBody()` compose site progress email content from the
@@ -90,6 +117,9 @@ or `npm.cmd run dev` when that happens.
   - `SiteDashboardView`
   - `ChecklistView` (site checklist board)
   - `CableMatrixView` (site cable matrix board)
+  - `AntennaChecklistView` (site antenna asset board)
+  - `DcplChecklistView` (site DCPL asset board)
+  - `CableChecklistView` (site cable checklist board)
   - `NewReportView` (progress update form)
   - `EmailDraftView`
   - `IssueLogView` (blocker form)
@@ -102,7 +132,8 @@ or `npm.cmd run dev` when that happens.
   - `AttachmentDropzone`
   - `MaterialIcon`
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
-- The checklist and cable matrix workflows live on their own routes and are linked from the site dashboard.
+- The checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist workflows
+  live on their own routes and are linked from the site dashboard quick-action area.
 
 ## Conventions
 
@@ -143,6 +174,19 @@ or `npm.cmd run dev` when that happens.
   `From`, and `To`.
 - **Cable matrix UX**: preserve the sticky summary/add card area, row drag reorder, auto-scroll
   during drag, export/import controls, and row-level log modal.
+- **Antenna checklist columns**: rows include `LEVEL`, `Description`, `Make`, `Model`,
+  `Serial Number`, `Asset Tag / Label`, and `Comment`.
+- **DCPL checklist columns**: rows include `LEVEL`, `Description`, `Make`, `Model`, `Label`,
+  `Serial Number`, `dB`, and `Comment`.
+- **Cable checklist columns**: rows include `LEVEL`, `Cable label`, `Cable ID`, `HOP Criteria`,
+  `Sweep test received`, `Remark`, and `Cable length Est. + 10 %`.
+- **Checklist-style asset boards**: antenna, DCPL, and cable checklist views should preserve the
+  sticky summary/add card area, row drag reorder, auto-scroll during drag, import/export controls,
+  and row-level log modal behavior.
+- **Checklist row editing**: antenna, DCPL, and cable checklist rows use local draft state and
+  save field changes on blur. Avoid partial-row update bugs that clear unrelated columns.
+- **Cable checklist dates**: `Sweep test received` should use date values in import, storage,
+  export, and manual entry UI. Manual entry should use a date picker.
 - **Approvals**: saving an approval requires at least one attachment.
 - **IDs**: `sites` use slug strings; `reports`, `issues`, `confirms`, and `attachments`
   auto-increment.
@@ -159,6 +203,9 @@ or `npm.cmd run dev` when that happens.
 - `/site/:id/settings` - edit/delete site
 - `/site/:id/checklist` - site checklist
 - `/site/:id/cable-matrix` - site cable matrix
+- `/site/:id/antenna-checklist` - site antenna checklist
+- `/site/:id/dcpl-checklist` - site DCPL checklist
+- `/site/:id/cable-checklist` - site cable checklist
 - `/site/:id/report/new` - new progress update
 - `/site/:id/report/:reportId/edit` - edit progress update
 - `/site/:id/report/:reportId/email` - email draft
@@ -201,5 +248,15 @@ Then check the app in the browser:
     remain on reload.
 21. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
     `From`, `To`, `Test`, `Label origin`, and `Label end`, and export includes `Log`.
-22. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+22. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
+    `Make`, `Model`, `Serial Number`, `Asset Tag / Label`, and `Comment`, and keeps row edits
+    after reload.
+23. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
+    `Model`, `Label`, `Serial Number`, `dB`, and `Comment`, and imports/exports those columns.
+24. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
+    `Cable ID`, `HOP Criteria`, `Sweep test received`, `Remark`, and `Cable length Est. + 10 %`.
+25. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
+    picker, and saved dates remain correct on reload.
+26. Cable checklist summary uses cable-length totals rather than serial-number totals.
+27. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

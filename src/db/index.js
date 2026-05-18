@@ -103,6 +103,54 @@ db.version(8).stores({
   cableMatrices: '++id, siteId, order',
 })
 
+db.version(9).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+})
+
+db.version(10).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+})
+
+db.version(11).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }
@@ -138,6 +186,9 @@ async function cleanLegacyDemoData() {
     db.emailSettings,
     db.checklists,
     db.cableMatrices,
+    db.antennaChecklists,
+    db.dcplChecklists,
+    db.cableChecklists,
     async () => {
       await Promise.all([
         db.sites.clear(),
@@ -148,6 +199,9 @@ async function cleanLegacyDemoData() {
         db.emailSettings.clear(),
         db.checklists.clear(),
         db.cableMatrices.clear(),
+        db.antennaChecklists.clear(),
+        db.dcplChecklists.clear(),
+        db.cableChecklists.clear(),
       ])
     }
   )

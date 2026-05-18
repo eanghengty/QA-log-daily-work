@@ -32,6 +32,21 @@ const routes = [
     component: () => import('../views/CableMatrixView.vue'),
   },
   {
+    path: '/site/:id/antenna-checklist',
+    name: 'site-antenna-checklist',
+    component: () => import('../views/AntennaChecklistView.vue'),
+  },
+  {
+    path: '/site/:id/dcpl-checklist',
+    name: 'site-dcpl-checklist',
+    component: () => import('../views/DcplChecklistView.vue'),
+  },
+  {
+    path: '/site/:id/cable-checklist',
+    name: 'site-cable-checklist',
+    component: () => import('../views/CableChecklistView.vue'),
+  },
+  {
     path: '/site/:id/report/new',
     name: 'new-report',
     component: () => import('../views/NewReportView.vue'),

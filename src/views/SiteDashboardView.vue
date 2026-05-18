@@ -7,6 +7,9 @@ import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { useChecklists } from '../composables/useChecklists.js'
 import { useCableMatrix } from '../composables/useCableMatrix.js'
+import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
+import { useDcplChecklist } from '../composables/useDcplChecklist.js'
+import { useCableChecklist } from '../composables/useCableChecklist.js'
 import { exportSite, importSite } from '../lib/backup.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import Topbar from '../components/Topbar.vue'
@@ -24,6 +27,9 @@ const { issues, pendingIssues, deleteIssue } = useIssues(siteId)
 const { confirms, deleteConfirm } = useConfirms(siteId)
 const { summary: checklistSummary } = useChecklists(siteId)
 const { summary: cableMatrixSummary } = useCableMatrix(siteId)
+const { summary: antennaChecklistSummary } = useAntennaChecklist(siteId)
+const { summary: dcplChecklistSummary } = useDcplChecklist(siteId)
+const { summary: cableChecklistSummary } = useCableChecklist(siteId)
 const { logAction } = useActivityLog()
 
 const sortedReports = computed(() => [...(reports.value || [])].sort(compareReportsDesc))
@@ -70,6 +76,24 @@ const cableMatrixLabel = computed(() => {
 
   return `${testRemaining} test no - ${originRemaining} origin no - ${endRemaining} end no`
 })
+const antennaChecklistValue = computed(() => antennaChecklistSummary.value?.total || 0)
+const antennaChecklistLabel = computed(() => {
+  if (!antennaChecklistSummary.value?.total) return 'no antenna rows yet'
+
+  return `${antennaChecklistSummary.value?.withSerialNumber || 0} serial no. - ${antennaChecklistSummary.value?.withModel || 0} model`
+})
+const dcplChecklistValue = computed(() => dcplChecklistSummary.value?.total || 0)
+const dcplChecklistLabel = computed(() => {
+  if (!dcplChecklistSummary.value?.total) return 'no DCPL rows yet'
+
+  return `${dcplChecklistSummary.value?.withSerialNumber || 0} serial no. - ${dcplChecklistSummary.value?.withModel || 0} model`
+})
+const cableChecklistValue = computed(() => cableChecklistSummary.value?.total || 0)
+const cableChecklistLabel = computed(() => {
+  if (!cableChecklistSummary.value?.total) return 'no cable rows yet'
+
+  return `${formatCountLength(cableChecklistSummary.value?.totalLength || 0)} total length - ${cableChecklistSummary.value?.withSweepTest || 0} sweep test`
+})
 const topbarTitle = computed(() =>
   site.value ? `${site.value.code || ''} ${site.value.name}`.trim() : 'Site'
 )
@@ -99,6 +123,18 @@ function openChecklist() {
 
 function openCableMatrix() {
   router.push(`/site/${siteId}/cable-matrix`)
+}
+
+function openAntennaChecklist() {
+  router.push(`/site/${siteId}/antenna-checklist`)
+}
+
+function openDcplChecklist() {
+  router.push(`/site/${siteId}/dcpl-checklist`)
+}
+
+function openCableChecklist() {
+  router.push(`/site/${siteId}/cable-checklist`)
 }
 
 function openLatestEmailDraft() {
@@ -216,6 +252,10 @@ function formatDate(dateString) {
   if (Number.isNaN(date.getTime())) return 'No date'
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date)
 }
+
+function formatCountLength(value) {
+  return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 2) : '0'
+}
 </script>
 
 <template>
@@ -233,14 +273,6 @@ function formatDate(dateString) {
       <button type="button" class="btn btn-ghost" @click="openSettings">
         <MaterialIcon name="settings" />
         Site settings
-      </button>
-      <button type="button" class="btn btn-ghost" @click="openChecklist">
-        <MaterialIcon name="checklist" />
-        Checklist
-      </button>
-      <button type="button" class="btn btn-ghost" @click="openCableMatrix">
-        <MaterialIcon name="cable" />
-        Cable matrix
       </button>
       <button
         type="button"
@@ -264,6 +296,9 @@ function formatDate(dateString) {
         <StatCard label="Progress updates" :value="reportsThisMonth" :sub="latestReportLabel" />
         <StatCard label="Checklist progress" :value="checklistValue" accent="var(--confirm)" :sub="checklistLabel" />
         <StatCard label="Cable matrix" :value="cableMatrixValue" accent="var(--confirm)" :sub="cableMatrixLabel" />
+        <StatCard label="Antenna checklist" :value="antennaChecklistValue" accent="var(--confirm)" :sub="antennaChecklistLabel" />
+        <StatCard label="DCPL checklist" :value="dcplChecklistValue" accent="var(--confirm)" :sub="dcplChecklistLabel" />
+        <StatCard label="Cable checklist" :value="cableChecklistValue" accent="var(--confirm)" :sub="cableChecklistLabel" />
       </div>
 
       <div class="col gap-3">
@@ -313,6 +348,33 @@ function formatDate(dateString) {
               <div class="title-md">Cable matrix</div>
             </div>
             <div class="small">cable checks and labels</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openAntennaChecklist">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="settings_input_antenna" />
+              </div>
+              <div class="title-md">Antenna checklist</div>
+            </div>
+            <div class="small">antenna assets and comments</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openDcplChecklist">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="tune" />
+              </div>
+              <div class="title-md">DCPL checklist</div>
+            </div>
+            <div class="small">DCPL assets and comments</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openCableChecklist">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="checklist" />
+              </div>
+              <div class="title-md">Cable checklist</div>
+            </div>
+            <div class="small">cable labels, HOP, and length</div>
           </button>
         </div>
       </div>

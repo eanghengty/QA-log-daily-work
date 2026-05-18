@@ -141,7 +141,7 @@ function emptyForm() {
 
       <div v-if="isEdit" class="box-dash p-3 col gap-2" style="margin-top: 12px">
         <div class="label">Remove site</div>
-        <div class="small">Deletes this site and its progress updates, blockers, confirmations, checklists, cable matrix rows, and email settings.</div>
+        <div class="small">Deletes this site and its progress updates, blockers, confirmations, checklists, cable matrix rows, antenna checklist rows, DCPL checklist rows, cable checklist rows, and email settings.</div>
         <button
           type="button"
           class="btn"
