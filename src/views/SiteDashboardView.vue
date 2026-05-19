@@ -278,8 +278,10 @@ function summarizeImportPayload(data) {
   const antennaChecklists = summary.antennaChecklists ?? data?.antennaChecklists?.length ?? 0
   const dcplChecklists = summary.dcplChecklists ?? data?.dcplChecklists?.length ?? 0
   const cableChecklists = summary.cableChecklists ?? data?.cableChecklists?.length ?? 0
+  const emailSettings = summary.emailSettings ?? (data?.emailSettings ? 1 : 0)
+  const attachments = summary.attachments ?? data?.attachments?.length ?? 0
 
-  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${cableMatrices} cable matrix rows, ${antennaChecklists} antenna rows, ${dcplChecklists} DCPL rows, ${cableChecklists} cable checklist rows`
+  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${cableMatrices} cable matrix rows, ${antennaChecklists} antenna rows, ${dcplChecklists} DCPL rows, ${cableChecklists} cable checklist rows, ${attachments} attachments, ${emailSettings} email settings record`
 }
 </script>
 
