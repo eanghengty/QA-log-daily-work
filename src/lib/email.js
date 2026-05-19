@@ -14,15 +14,15 @@ export async function buildEmailBody(report, site, settings = {}) {
   const siteLabel = `${site.id} - ${site.name}`
 
   const noteLines = (report.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
-  const noteItems = noteLines.length
-    ? noteLines.map((l) => `  <li>${escapeHtml(l)}</li>`).join('\n')
-    : `  <li>Site progress notes captured</li>`
+  const progressSummary = noteLines.length
+    ? noteLines.map((line) => `<div style="margin:0 0 6px;">${escapeHtml(line)}</div>`).join('\n')
+    : '<div style="margin:0;">Site progress notes captured</div>'
   let html = `<p style="margin:0 0 4px;">Dear All,</p>
 <p style="margin:0 0 14px;">Kindly find below report update for ${escapeHtml(siteLabel)}, as of ${escapeHtml(today)}</p>
 <p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
-<ul style="margin:4px 0 0 18px; padding:0;">
-${noteItems}
-</ul>`
+<div style="margin:4px 0 0;">
+${progressSummary}
+</div>`
 
   if (includeIssues && issues.length > 0) {
     html += `<p style="margin:14px 0 4px; font-weight:600; color:#c2701c;">Open blockers (${issues.length})</p>
