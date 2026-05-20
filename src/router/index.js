@@ -1,4 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { db } from '../db/index.js'
+import { shouldShowAntennaChecklist, shouldShowDcplChecklist } from '../lib/siteScope.js'
+
+async function blockAntennaChecklistRoute(to) {
+  const site = await db.sites.get(to.params.id)
+  if (!shouldShowAntennaChecklist(site?.scope)) {
+    return { name: 'site-dashboard', params: { id: to.params.id } }
+  }
+  return true
+}
+
+async function blockDcplChecklistRoute(to) {
+  const site = await db.sites.get(to.params.id)
+  if (!shouldShowDcplChecklist(site?.scope)) {
+    return { name: 'site-dashboard', params: { id: to.params.id } }
+  }
+  return true
+}
 
 const routes = [
   {
@@ -35,11 +53,13 @@ const routes = [
     path: '/site/:id/antenna-checklist',
     name: 'site-antenna-checklist',
     component: () => import('../views/AntennaChecklistView.vue'),
+    beforeEnter: blockAntennaChecklistRoute,
   },
   {
     path: '/site/:id/dcpl-checklist',
     name: 'site-dcpl-checklist',
     component: () => import('../views/DcplChecklistView.vue'),
+    beforeEnter: blockDcplChecklistRoute,
   },
   {
     path: '/site/:id/cable-checklist',

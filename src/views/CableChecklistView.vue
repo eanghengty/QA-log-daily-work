@@ -3,12 +3,14 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useCableChecklist } from '../composables/useCableChecklist.js'
+import { useCableChecklistLayout } from '../composables/useCableChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import {
   downloadCableChecklistExport,
   downloadCableChecklistTemplate,
   parseCableChecklistSpreadsheet,
 } from '../lib/cableChecklistSpreadsheet.js'
+import { CHECKLIST_COLUMN_TYPE } from '../lib/checklistColumns.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -19,7 +21,8 @@ const siteId = route.params.id
 
 const { useSiteById } = useSites()
 const { data: site } = useSiteById(siteId)
-const { rows, summary, addRow, updateRow, deleteRow, reorderRows, importRows } = useCableChecklist(siteId)
+const { rows, summary, addRow, updateRow, deleteRow, reorderRows, importRows, removeCustomColumnValues } = useCableChecklist(siteId)
+const { customColumns, addCustomColumn, removeCustomColumn, mergeImportedCustomColumns } = useCableChecklistLayout(siteId)
 const { logAction } = useActivityLog()
 
 const importInputRef = ref(null)
@@ -33,12 +36,21 @@ const autoScrollFrame = ref(null)
 const draggedRowId = ref(null)
 const dropRowId = ref(null)
 const rowDrafts = ref({})
+const showAddColumnModal = ref(false)
+const newColumnName = ref('')
+const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
+const addColumnError = ref('')
 
 const title = computed(() => (site.value ? `${site.value.name} cable checklist` : 'Site cable checklist'))
 const subtitle = computed(() => {
   const location = site.value?.url || siteId
   return `${location} - ${summary.value.total || 0} cable checklist rows tracked`
 })
+const columnTypeOptions = [
+  { value: CHECKLIST_COLUMN_TYPE.TEXT, label: 'Text' },
+  { value: CHECKLIST_COLUMN_TYPE.NUMBER, label: 'Number' },
+  { value: CHECKLIST_COLUMN_TYPE.DATE, label: 'Date' },
+]
 
 onBeforeUnmount(() => {
   stopAutoScroll()
@@ -73,6 +85,7 @@ function createEmptyRow() {
     sweepTestReceived: '',
     remark: '',
     cableLength: '',
+    fieldValues: {},
   }
 }
 
@@ -85,6 +98,7 @@ function createRowDraft(row) {
     sweepTestReceived: normalizeDateInputValue(row?.sweepTestReceived),
     remark: row?.remark || '',
     cableLength: row?.cableLength || '',
+    fieldValues: { ...(row?.fieldValues || {}) },
   }
 }
 
@@ -114,7 +128,7 @@ function openImportPicker() {
 }
 
 function handleDownloadTemplate() {
-  downloadCableChecklistTemplate()
+  downloadCableChecklistTemplate(customColumns.value)
   showStatus('Cable checklist template downloaded.')
 }
 
@@ -124,7 +138,7 @@ async function handleExport() {
     return
   }
 
-  downloadCableChecklistExport(rows.value, site.value?.name || siteId)
+  downloadCableChecklistExport(rows.value, site.value?.name || siteId, customColumns.value)
   await logAction('Cable checklist exported', `${siteId} - ${rows.value.length} rows`)
   showStatus('Cable checklist export downloaded.')
 }
@@ -148,7 +162,10 @@ async function handleImportFile(event) {
 
   isImporting.value = true
   try {
-    const parsedRows = await parseCableChecklistSpreadsheet(file)
+    const parsed = await parseCableChecklistSpreadsheet(file)
+    const mergedColumns = await mergeImportedCustomColumns(parsed.customColumns || [])
+    const importedColumns = mergeImportedColumns(parsed.customColumns || [], mergedColumns)
+    const parsedRows = remapImportedRowFieldValues(parsed.rows, parsed.customColumns || [], importedColumns)
     const result = await importRows(parsedRows)
     await logAction('Cable checklist imported', `${siteId} - ${result.addedRows} added, ${result.updatedRows} updated`)
     showStatus(`Imported ${result.addedRows} new rows and updated ${result.updatedRows} rows.`)
@@ -164,6 +181,20 @@ async function saveDraftField(row, field) {
   const value = draft[field] || ''
   if (value === (row[field] || '')) return
   await updateRow(row.id, { [field]: value })
+}
+
+async function saveDraftCustomField(row, column) {
+  const draft = getRowDraft(row)
+  const currentValue = row.fieldValues?.[column.id] || ''
+  const nextValue = draft.fieldValues?.[column.id] || ''
+  if (nextValue === currentValue) return
+
+  await updateRow(row.id, {
+    fieldValues: {
+      ...(row.fieldValues || {}),
+      [column.id]: nextValue,
+    },
+  })
 }
 
 async function removeRow(row) {
@@ -329,6 +360,69 @@ function stopAutoScroll() {
     autoScrollFrame.value = null
   }
 }
+
+function openAddColumnModal() {
+  showAddColumnModal.value = true
+}
+
+function closeAddColumnModal() {
+  showAddColumnModal.value = false
+  newColumnName.value = ''
+  newColumnType.value = CHECKLIST_COLUMN_TYPE.TEXT
+  addColumnError.value = ''
+}
+
+async function handleAddColumn() {
+  const label = newColumnName.value.trim()
+  if (!label) {
+    addColumnError.value = 'Column name is required.'
+    return
+  }
+
+  try {
+    await addCustomColumn({
+      label,
+      type: newColumnType.value,
+    })
+    await logAction('Cable checklist column added', `${siteId} - ${label}`)
+    showStatus('Cable checklist column added.')
+    closeAddColumnModal()
+  } catch (error) {
+    addColumnError.value = error.message
+  }
+}
+
+async function handleRemoveColumn(column) {
+  await removeCustomColumnValues(column.id)
+  await removeCustomColumn(column.id)
+  await logAction('Cable checklist column removed', `${siteId} - ${column.label}`)
+  showStatus('Cable checklist column removed.')
+}
+
+function mergeImportedColumns(importedColumns, storedColumns) {
+  return (importedColumns || []).map((column) => {
+    const match = (storedColumns || []).find(
+      (item) => item.label.toLowerCase() === column.label.toLowerCase()
+    )
+    return match || column
+  })
+}
+
+function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
+  const columnIdMap = Object.fromEntries(
+    (sourceColumns || []).map((column, index) => [
+      column.id || column.label,
+      targetColumns[index]?.id || column.id || column.label,
+    ])
+  )
+
+  return (sourceRows || []).map((row) => ({
+    ...row,
+    fieldValues: Object.fromEntries(
+      Object.entries(row.fieldValues || {}).map(([key, value]) => [columnIdMap[key] || key, value])
+    ),
+  }))
+}
 </script>
 
 <template>
@@ -336,6 +430,10 @@ function stopAutoScroll() {
     <input ref="importInputRef" type="file" accept=".xlsx,.xls,.csv" hidden @change="handleImportFile" />
 
     <Topbar :title="title" :subtitle="subtitle">
+      <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
+        <MaterialIcon name="view_column" />
+        Add column
+      </button>
       <button type="button" class="btn btn-ghost" @click="handleExport">
         <MaterialIcon name="download_for_offline" />
         Export cable checklist
@@ -381,6 +479,31 @@ function stopAutoScroll() {
               <input v-model="newRow.sweepTestReceived" class="field" type="date" style="flex: 1 1 180px" />
               <input v-model="newRow.remark" class="field" type="text" placeholder="Remark" style="flex: 1 1 140px" />
               <input v-model="newRow.cableLength" class="field" type="text" placeholder="Cable length Est. + 10 %" style="flex: 1 1 180px" />
+              <template v-for="column in customColumns" :key="column.id">
+                <input
+                  v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
+                  v-model="newRow.fieldValues[column.id]"
+                  class="field"
+                  type="text"
+                  :placeholder="column.label"
+                  style="flex: 1 1 180px"
+                />
+                <input
+                  v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
+                  v-model="newRow.fieldValues[column.id]"
+                  class="field"
+                  type="number"
+                  :placeholder="column.label"
+                  style="flex: 1 1 180px"
+                />
+                <input
+                  v-else
+                  v-model="newRow.fieldValues[column.id]"
+                  class="field"
+                  type="date"
+                  style="flex: 1 1 180px"
+                />
+              </template>
             </div>
             <button type="button" class="btn btn-primary" style="align-self: flex-start" @click="createRow">
               <MaterialIcon name="add" />
@@ -407,6 +530,15 @@ function stopAutoScroll() {
               <th class="table-head">Sweep test received</th>
               <th class="table-head">Remark</th>
               <th class="table-head">Cable length Est. + 10 %</th>
+              <th v-for="column in customColumns" :key="column.id" class="table-head">
+                <div class="header-cell">
+                  <span>{{ column.label }}</span>
+                  <button type="button" class="chip chip-pending header-remove" @click="handleRemoveColumn(column)">
+                    <MaterialIcon name="delete" :size="12" />
+                    Remove
+                  </button>
+                </div>
+              </th>
               <th class="table-head">Action</th>
             </tr>
           </thead>
@@ -438,6 +570,29 @@ function stopAutoScroll() {
               <td class="table-cell"><input class="field sweep-field" type="date" v-model="getRowDraft(row).sweepTestReceived" @blur="saveDraftField(row, 'sweepTestReceived')" /></td>
               <td class="table-cell"><input class="field remark-field" type="text" v-model="getRowDraft(row).remark" @blur="saveDraftField(row, 'remark')" /></td>
               <td class="table-cell"><input class="field length-field" type="text" v-model="getRowDraft(row).cableLength" @blur="saveDraftField(row, 'cableLength')" /></td>
+              <td v-for="column in customColumns" :key="column.id" class="table-cell">
+                <input
+                  v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
+                  class="field custom-field"
+                  type="text"
+                  v-model="getRowDraft(row).fieldValues[column.id]"
+                  @blur="saveDraftCustomField(row, column)"
+                />
+                <input
+                  v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
+                  class="field custom-field"
+                  type="number"
+                  v-model="getRowDraft(row).fieldValues[column.id]"
+                  @blur="saveDraftCustomField(row, column)"
+                />
+                <input
+                  v-else
+                  class="field custom-field"
+                  type="date"
+                  v-model="getRowDraft(row).fieldValues[column.id]"
+                  @blur="saveDraftCustomField(row, column)"
+                />
+              </td>
               <td class="table-cell">
                 <div class="row gap-2" style="flex-wrap: wrap">
                   <button type="button" class="chip" @click="openChangeLogModal(row)">
@@ -465,6 +620,73 @@ function stopAutoScroll() {
       <MaterialIcon :name="statusTone === 'issue' ? 'error' : 'check_circle'" :size="14" />
       {{ statusMessage }}
     </div>
+
+    <Teleport to="body">
+      <div v-if="showAddColumnModal" class="add-site-overlay" @click.self="closeAddColumnModal">
+        <div class="add-site-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Add cable checklist column</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeAddColumnModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Column name</div>
+            <input
+              v-model="newColumnName"
+              class="field"
+              type="text"
+              placeholder="Example: Drum ID"
+              @input="addColumnError = ''"
+            />
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Column type</div>
+            <select v-model="newColumnType" class="field" style="cursor: pointer">
+              <option v-for="option in columnTypeOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="addColumnError" class="tiny" style="color: var(--issue)">{{ addColumnError }}</div>
+
+          <div class="col gap-2">
+            <div class="label">Custom columns</div>
+            <div v-if="!customColumns.length" class="box-soft p-3 small" style="color: var(--ink)">
+              No added columns yet. Baseline cable checklist columns stay in place and cannot be removed here.
+            </div>
+            <div v-else class="col gap-2">
+              <div
+                v-for="column in customColumns"
+                :key="column.id"
+                class="box-soft p-3 row gap-2"
+                style="justify-content: space-between; align-items: center; flex-wrap: wrap"
+              >
+                <div class="col gap-1">
+                  <div class="small" style="color: var(--ink)">{{ column.label }}</div>
+                  <div class="tiny">{{ column.type }}</div>
+                </div>
+                <button type="button" class="chip chip-pending" @click="handleRemoveColumn(column)">
+                  <MaterialIcon name="delete" :size="14" />
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-ghost" @click="closeAddColumnModal">Cancel</button>
+            <button type="button" class="btn btn-primary" @click="handleAddColumn">
+              <MaterialIcon name="save" />
+              Add column
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <Teleport to="body">
       <div v-if="activeChangeLog" class="add-site-overlay" @click.self="closeChangeLogModal">
@@ -566,9 +788,25 @@ function stopAutoScroll() {
   min-width: 180px;
 }
 
+.custom-field {
+  min-width: 180px;
+}
+
 .drag-chip {
   cursor: grab;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.header-remove {
+  padding: 2px 8px;
+  font-size: 10px;
 }
 </style>

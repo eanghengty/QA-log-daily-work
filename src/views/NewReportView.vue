@@ -6,6 +6,7 @@ import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -28,7 +29,7 @@ const today = new Date().toISOString().split('T')[0]
 const form = ref(emptyForm())
 
 const pageTitle = computed(() => (isEdit.value ? 'Edit progress update' : 'New progress update'))
-const pageSubtitle = computed(() => `${site.value?.name || siteId} - ${form.value.date || today}`)
+const pageSubtitle = computed(() => `${formatSiteNameWithHopReviewer(site.value, siteId)} - ${form.value.date || today}`)
 
 watch(
   report,

@@ -17,6 +17,7 @@ export function useAntennaChecklist(siteId) {
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
+      fieldValues: normalizeFieldValues(row.fieldValues),
       changeHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -38,6 +39,16 @@ export function useAntennaChecklist(siteId) {
       if (previousValue === nextValue) continue
 
       nextHistory.push(createFieldHistoryEntry(field, previousValue, nextValue))
+    }
+
+    if ('fieldValues' in normalizedUpdates) {
+      const previousFieldValues = row.fieldValues || {}
+      for (const [field, nextValueRaw] of Object.entries(normalizedUpdates.fieldValues || {})) {
+        const previousValue = String(previousFieldValues[field] || '').trim()
+        const nextValue = String(nextValueRaw || '').trim()
+        if (previousValue === nextValue) continue
+        nextHistory.push(createFieldHistoryEntry(field, previousValue, nextValue))
+      }
     }
 
     return await db.antennaChecklists.update(Number(id), {
@@ -90,6 +101,10 @@ export function useAntennaChecklist(siteId) {
           const nextValues = {
             ...existing,
             ...normalizedRow,
+            fieldValues: {
+              ...(existing.fieldValues || {}),
+              ...(normalizedRow.fieldValues || {}),
+            },
             updatedAt: new Date().toISOString(),
           }
           await db.antennaChecklists.put(nextValues)
@@ -117,6 +132,26 @@ export function useAntennaChecklist(siteId) {
     return summary
   }
 
+  async function removeCustomColumnValues(columnId) {
+    if (!columnId) return
+
+    await db.transaction('rw', db.antennaChecklists, async () => {
+      const siteRows = await db.antennaChecklists.where('siteId').equals(siteId).toArray()
+
+      for (const row of siteRows) {
+        if (!row.fieldValues || !(columnId in row.fieldValues)) continue
+
+        const fieldValues = { ...row.fieldValues }
+        delete fieldValues[columnId]
+
+        await db.antennaChecklists.update(Number(row.id), {
+          fieldValues,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    })
+  }
+
   return {
     rows,
     summary,
@@ -125,6 +160,7 @@ export function useAntennaChecklist(siteId) {
     deleteRow,
     reorderRows,
     importRows,
+    removeCustomColumnValues,
   }
 }
 
@@ -157,6 +193,7 @@ function normalizeRowValues(row) {
     serialNumber: String(row.serialNumber || '').trim(),
     assetTag: String(row.assetTag || '').trim(),
     comment: String(row.comment || '').trim(),
+    fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
 
@@ -170,8 +207,15 @@ function normalizeRowUpdates(updates) {
   if ('serialNumber' in next) next.serialNumber = String(next.serialNumber || '').trim()
   if ('assetTag' in next) next.assetTag = String(next.assetTag || '').trim()
   if ('comment' in next) next.comment = String(next.comment || '').trim()
+  if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+function normalizeFieldValues(value) {
+  return Object.fromEntries(
+    Object.entries(value || {}).map(([key, item]) => [String(key), String(item ?? '')])
+  )
 }
 
 function hasAnyValue(row) {

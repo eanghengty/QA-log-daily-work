@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx'
 
+import { normalizeChecklistCustomColumns } from './checklistColumns.js'
+
 const TEMPLATE_HEADERS = [
   'Cable Number',
   'Cable label at origin end destination',
@@ -9,40 +11,46 @@ const TEMPLATE_HEADERS = [
   'Label origin',
   'Label end',
 ]
-export const CABLE_MATRIX_EXPORT_HEADERS = [
-  'Cable Number',
-  'Cable label at origin end destination',
-  'From',
-  'To',
-  'Test',
-  'Label origin',
-  'Label end',
-  'Log',
-]
-export const CABLE_MATRIX_EXPORT_COLS = [{ wch: 18 }, { wch: 36 }, { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 52 }]
+const BASE_EXPORT_HEADERS = [...TEMPLATE_HEADERS]
 
-export function downloadCableMatrixTemplate() {
+export function CABLE_MATRIX_EXPORT_COLS(customColumns = []) {
+  return [
+    { wch: 18 },
+    { wch: 36 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 12 },
+    ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
+    { wch: 52 },
+  ]
+}
+
+export function downloadCableMatrixTemplate(customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS])
-  worksheet['!cols'] = [{ wch: 18 }, { wch: 36 }, { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 12 }]
+  const headers = [...TEMPLATE_HEADERS, ...normalizeChecklistCustomColumns(customColumns).map((column) => column.label)]
+  const worksheet = XLSX.utils.aoa_to_sheet([headers])
+  worksheet['!cols'] = CABLE_MATRIX_EXPORT_COLS(customColumns).slice(0, headers.length)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Matrix Template')
   XLSX.writeFile(workbook, 'site-cable-matrix-template.xlsx')
 }
 
-export function downloadCableMatrixExport(rows, siteName = 'site') {
+export function downloadCableMatrixExport(rows, siteName = 'site', customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet(buildCableMatrixExportRows(rows))
+  const worksheet = XLSX.utils.aoa_to_sheet(buildCableMatrixExportRows(rows, customColumns))
 
-  worksheet['!cols'] = CABLE_MATRIX_EXPORT_COLS
+  worksheet['!cols'] = CABLE_MATRIX_EXPORT_COLS(customColumns)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Matrix Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-cable-matrix.xlsx`)
 }
 
-export function buildCableMatrixExportRows(rows) {
+export function buildCableMatrixExportRows(rows, customColumns = []) {
+  const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    CABLE_MATRIX_EXPORT_HEADERS,
+    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
     ...(rows || []).map((row) => [
       row.cableNumber || '',
       row.cableLabel || '',
@@ -51,6 +59,7 @@ export function buildCableMatrixExportRows(rows) {
       formatStatus(row.testStatus),
       formatStatus(row.labelOriginStatus),
       formatStatus(row.labelEndStatus),
+      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
       formatStatusHistory(row.statusHistory),
     ]),
   ]
@@ -76,7 +85,8 @@ export async function parseCableMatrixSpreadsheet(file) {
     throw new Error('The worksheet is empty.')
   }
 
-  const headerRow = rows[0].map(normalizeHeader)
+  const rawHeaderRow = rows[0].map((value) => String(value || '').trim())
+  const headerRow = rawHeaderRow.map(normalizeHeader)
   const cableNumberIndex = headerRow.findIndex((value) => value === 'cablenumber')
   const cableLabelIndex = headerRow.findIndex(
     (value) =>
@@ -89,6 +99,16 @@ export async function parseCableMatrixSpreadsheet(file) {
   const testIndex = headerRow.findIndex((value) => value === 'test')
   const labelOriginIndex = headerRow.findIndex((value) => value === 'labelorigin')
   const labelEndIndex = headerRow.findIndex((value) => value === 'labelend')
+  const knownIndexes = new Set([
+    cableNumberIndex,
+    cableLabelIndex,
+    fromIndex,
+    toIndex,
+    testIndex,
+    labelOriginIndex,
+    labelEndIndex,
+    headerRow.findIndex((value) => value === 'log'),
+  ])
 
   if (
     cableNumberIndex === -1 ||
@@ -104,6 +124,16 @@ export async function parseCableMatrixSpreadsheet(file) {
     )
   }
 
+  const customColumns = rawHeaderRow
+    .map((label, index) => ({ label, index }))
+    .filter(({ label, index }) => label && !knownIndexes.has(index))
+    .map(({ label, index }) => ({
+      id: label,
+      label,
+      index,
+      type: 'text',
+    }))
+
   const parsedRows = rows
     .slice(1)
     .map((row) => ({
@@ -114,6 +144,9 @@ export async function parseCableMatrixSpreadsheet(file) {
       testStatus: normalizeImportStatus(row[testIndex]),
       labelOriginStatus: normalizeImportStatus(row[labelOriginIndex]),
       labelEndStatus: normalizeImportStatus(row[labelEndIndex]),
+      fieldValues: Object.fromEntries(
+        customColumns.map((column) => [column.label, toCellText(row[column.index])])
+      ),
     }))
     .filter((row) => row.cableNumber || row.cableLabel)
 
@@ -121,7 +154,10 @@ export async function parseCableMatrixSpreadsheet(file) {
     throw new Error('No cable matrix rows were found in the file.')
   }
 
-  return parsedRows
+  return {
+    rows: parsedRows,
+    customColumns,
+  }
 }
 
 function normalizeHeader(value) {

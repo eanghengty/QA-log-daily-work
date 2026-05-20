@@ -11,10 +11,16 @@ const FULL_BACKUP_TABLES = [
   'activityLog',
   'confirmSources',
   'checklists',
+  'checklistLayouts',
+  'cableMatrixLayouts',
+  'antennaChecklistLayouts',
+  'dcplChecklistLayouts',
+  'cableChecklistLayouts',
   'cableMatrices',
   'antennaChecklists',
   'dcplChecklists',
   'cableChecklists',
+  'documentReferences',
 ]
 
 const SITE_SCOPED_TABLES = [
@@ -22,10 +28,16 @@ const SITE_SCOPED_TABLES = [
   'issues',
   'confirms',
   'checklists',
+  'checklistLayouts',
+  'cableMatrixLayouts',
+  'antennaChecklistLayouts',
+  'dcplChecklistLayouts',
+  'cableChecklistLayouts',
   'cableMatrices',
   'antennaChecklists',
   'dcplChecklists',
   'cableChecklists',
+  'documentReferences',
 ]
 
 export async function exportBackup() {
@@ -51,10 +63,16 @@ export async function exportSite(siteId) {
     confirms,
     emailSettings,
     checklists,
+    checklistLayout,
+    cableMatrixLayout,
+    antennaChecklistLayout,
+    dcplChecklistLayout,
+    cableChecklistLayout,
     cableMatrices,
     antennaChecklists,
     dcplChecklists,
     cableChecklists,
+    documentReferences,
   ] = await Promise.all([
     db.sites.get(siteId),
     db.reports.where('siteId').equals(siteId).toArray(),
@@ -62,10 +80,16 @@ export async function exportSite(siteId) {
     db.confirms.where('siteId').equals(siteId).toArray(),
     db.emailSettings.get(siteId),
     db.checklists.where('siteId').equals(siteId).sortBy('order'),
+    db.checklistLayouts.get(siteId),
+    db.cableMatrixLayouts.get(siteId),
+    db.antennaChecklistLayouts.get(siteId),
+    db.dcplChecklistLayouts.get(siteId),
+    db.cableChecklistLayouts.get(siteId),
     db.cableMatrices.where('siteId').equals(siteId).sortBy('order'),
     db.antennaChecklists.where('siteId').equals(siteId).sortBy('order'),
     db.dcplChecklists.where('siteId').equals(siteId).sortBy('order'),
     db.cableChecklists.where('siteId').equals(siteId).sortBy('order'),
+    db.documentReferences.where('siteId').equals(siteId).reverse().sortBy('createdAt'),
   ])
 
   const allAttachmentIds = [
@@ -85,10 +109,16 @@ export async function exportSite(siteId) {
       issues,
       confirms,
       checklists,
+      checklistLayout,
+      cableMatrixLayout,
+      antennaChecklistLayout,
+      dcplChecklistLayout,
+      cableChecklistLayout,
       cableMatrices,
       antennaChecklists,
       dcplChecklists,
       cableChecklists,
+      documentReferences,
       emailSettings,
       attachments,
     }),
@@ -97,10 +127,16 @@ export async function exportSite(siteId) {
     issues,
     confirms,
     checklists,
+    checklistLayout: checklistLayout || null,
+    cableMatrixLayout: cableMatrixLayout || null,
+    antennaChecklistLayout: antennaChecklistLayout || null,
+    dcplChecklistLayout: dcplChecklistLayout || null,
+    cableChecklistLayout: cableChecklistLayout || null,
     cableMatrices,
     antennaChecklists,
     dcplChecklists,
     cableChecklists,
+    documentReferences,
     emailSettings: emailSettings || null,
     attachments: await serializeAttachments(attachments),
   }
@@ -135,10 +171,16 @@ export async function importSite(jsonOrObject) {
     db.emailSettings,
     db.attachments,
     db.checklists,
+    db.checklistLayouts,
+    db.cableMatrixLayouts,
+    db.antennaChecklistLayouts,
+    db.dcplChecklistLayouts,
+    db.cableChecklistLayouts,
     db.cableMatrices,
     db.antennaChecklists,
     db.dcplChecklists,
     db.cableChecklists,
+    db.documentReferences,
     async () => {
       await db.sites.put(data.site)
 
@@ -158,6 +200,36 @@ export async function importSite(jsonOrObject) {
         await db.emailSettings.put(data.emailSettings)
       } else {
         await db.emailSettings.delete(siteId)
+      }
+
+      if (data.checklistLayout) {
+        await db.checklistLayouts.put(data.checklistLayout)
+      } else {
+        await db.checklistLayouts.delete(siteId)
+      }
+
+      if (data.cableMatrixLayout) {
+        await db.cableMatrixLayouts.put(data.cableMatrixLayout)
+      } else {
+        await db.cableMatrixLayouts.delete(siteId)
+      }
+
+      if (data.antennaChecklistLayout) {
+        await db.antennaChecklistLayouts.put(data.antennaChecklistLayout)
+      } else {
+        await db.antennaChecklistLayouts.delete(siteId)
+      }
+
+      if (data.dcplChecklistLayout) {
+        await db.dcplChecklistLayouts.put(data.dcplChecklistLayout)
+      } else {
+        await db.dcplChecklistLayouts.delete(siteId)
+      }
+
+      if (data.cableChecklistLayout) {
+        await db.cableChecklistLayouts.put(data.cableChecklistLayout)
+      } else {
+        await db.cableChecklistLayouts.delete(siteId)
       }
     },
   )
@@ -186,10 +258,16 @@ export async function importBackup(jsonOrObject) {
     db.activityLog,
     db.confirmSources,
     db.checklists,
+    db.checklistLayouts,
+    db.cableMatrixLayouts,
+    db.antennaChecklistLayouts,
+    db.dcplChecklistLayouts,
+    db.cableChecklistLayouts,
     db.cableMatrices,
     db.antennaChecklists,
     db.dcplChecklists,
     db.cableChecklists,
+    db.documentReferences,
     async () => {
       await Promise.all(FULL_BACKUP_TABLES.map((tableName) => db[tableName].clear()))
 
@@ -204,10 +282,16 @@ export async function importBackup(jsonOrObject) {
         db.activityLog.bulkPut(data.activityLog || []),
         db.confirmSources.bulkPut(data.confirmSources || []),
         db.checklists.bulkPut(data.checklists || []),
+        db.checklistLayouts.bulkPut(data.checklistLayouts || []),
+        db.cableMatrixLayouts.bulkPut(data.cableMatrixLayouts || []),
+        db.antennaChecklistLayouts.bulkPut(data.antennaChecklistLayouts || []),
+        db.dcplChecklistLayouts.bulkPut(data.dcplChecklistLayouts || []),
+        db.cableChecklistLayouts.bulkPut(data.cableChecklistLayouts || []),
         db.cableMatrices.bulkPut(data.cableMatrices || []),
         db.antennaChecklists.bulkPut(data.antennaChecklists || []),
         db.dcplChecklists.bulkPut(data.dcplChecklists || []),
         db.cableChecklists.bulkPut(data.cableChecklists || []),
+        db.documentReferences.bulkPut(data.documentReferences || []),
       ])
     },
   )
@@ -296,10 +380,16 @@ function buildSiteSummary(data) {
     issues: data.issues?.length || 0,
     confirms: data.confirms?.length || 0,
     checklists: data.checklists?.length || 0,
+    checklistLayout: data.checklistLayout?.customColumns?.length || 0,
+    cableMatrixLayout: data.cableMatrixLayout?.customColumns?.length || 0,
+    antennaChecklistLayout: data.antennaChecklistLayout?.customColumns?.length || 0,
+    dcplChecklistLayout: data.dcplChecklistLayout?.customColumns?.length || 0,
+    cableChecklistLayout: data.cableChecklistLayout?.customColumns?.length || 0,
     cableMatrices: data.cableMatrices?.length || 0,
     antennaChecklists: data.antennaChecklists?.length || 0,
     dcplChecklists: data.dcplChecklists?.length || 0,
     cableChecklists: data.cableChecklists?.length || 0,
+    documentReferences: data.documentReferences?.length || 0,
     emailSettings: data.emailSettings ? 1 : 0,
     attachments: data.attachments?.length || 0,
   }

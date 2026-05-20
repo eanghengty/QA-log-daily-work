@@ -11,8 +11,11 @@ import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useDcplChecklist } from '../composables/useDcplChecklist.js'
 import { useCableChecklist } from '../composables/useCableChecklist.js'
 import { exportSite, importSite } from '../lib/backup.js'
+import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
+import { shouldShowAntennaChecklist, shouldShowDcplChecklist } from '../lib/siteScope.js'
 import { exportSiteWorkbook } from '../lib/siteWorkbookSpreadsheet.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import DocumentReferenceModal from '../components/DocumentReferenceModal.vue'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -83,6 +86,8 @@ const antennaChecklistLabel = computed(() => {
 
   return `${antennaChecklistSummary.value?.withSerialNumber || 0} serial no. - ${antennaChecklistSummary.value?.withModel || 0} model`
 })
+const shouldRenderAntennaChecklist = computed(() => shouldShowAntennaChecklist(site.value?.scope))
+const shouldRenderDcplChecklist = computed(() => shouldShowDcplChecklist(site.value?.scope))
 const dcplChecklistValue = computed(() => dcplChecklistSummary.value?.total || 0)
 const dcplChecklistLabel = computed(() => {
   if (!dcplChecklistSummary.value?.total) return 'no DCPL rows yet'
@@ -95,9 +100,7 @@ const cableChecklistLabel = computed(() => {
 
   return `${formatCountLength(cableChecklistSummary.value?.totalLength || 0)} total length - ${cableChecklistSummary.value?.withSweepTest || 0} sweep test`
 })
-const topbarTitle = computed(() =>
-  site.value ? `${site.value.code || ''} ${site.value.name}`.trim() : 'Site'
-)
+const topbarTitle = computed(() => formatSiteNameWithHopReviewer(site.value, siteId))
 const topbarSubtitle = computed(() =>
   `${site.value?.url || siteId} - ${latestReportLabel.value}`
 )
@@ -185,6 +188,7 @@ function toggleReport(id) {
 
 const importFileRef = ref(null)
 const siteStatus = ref('')
+const showDocumentReferenceModal = ref(false)
 
 async function handleExportSite() {
   await exportSite(siteId)
@@ -229,7 +233,7 @@ async function handleImportFile(event) {
   }
 
   const importSummary = summarizeImportPayload(data)
-  if (!window.confirm(`Import will replace all data for "${site.value?.name}" including updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist.
+  if (!window.confirm(`Import will replace all data for "${site.value?.name}" including updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, and document references.
 
 Incoming file: ${importSummary}
 
@@ -274,24 +278,35 @@ function summarizeImportPayload(data) {
   const issues = summary.issues ?? data?.issues?.length ?? 0
   const confirms = summary.confirms ?? data?.confirms?.length ?? 0
   const checklists = summary.checklists ?? data?.checklists?.length ?? 0
+  const checklistLayout = summary.checklistLayout ?? data?.checklistLayout?.customColumns?.length ?? 0
+  const cableMatrixLayout = summary.cableMatrixLayout ?? data?.cableMatrixLayout?.customColumns?.length ?? 0
+  const antennaChecklistLayout = summary.antennaChecklistLayout ?? data?.antennaChecklistLayout?.customColumns?.length ?? 0
+  const dcplChecklistLayout = summary.dcplChecklistLayout ?? data?.dcplChecklistLayout?.customColumns?.length ?? 0
+  const cableChecklistLayout = summary.cableChecklistLayout ?? data?.cableChecklistLayout?.customColumns?.length ?? 0
   const cableMatrices = summary.cableMatrices ?? data?.cableMatrices?.length ?? 0
   const antennaChecklists = summary.antennaChecklists ?? data?.antennaChecklists?.length ?? 0
   const dcplChecklists = summary.dcplChecklists ?? data?.dcplChecklists?.length ?? 0
   const cableChecklists = summary.cableChecklists ?? data?.cableChecklists?.length ?? 0
+  const documentReferences = summary.documentReferences ?? data?.documentReferences?.length ?? 0
   const emailSettings = summary.emailSettings ?? (data?.emailSettings ? 1 : 0)
   const attachments = summary.attachments ?? data?.attachments?.length ?? 0
 
-  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${cableMatrices} cable matrix rows, ${antennaChecklists} antenna rows, ${dcplChecklists} DCPL rows, ${cableChecklists} cable checklist rows, ${attachments} attachments, ${emailSettings} email settings record`
+  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${checklistLayout} custom checklist columns, ${cableMatrices} cable matrix rows, ${cableMatrixLayout} custom cable matrix columns, ${antennaChecklists} antenna rows, ${antennaChecklistLayout} custom antenna checklist columns, ${dcplChecklists} DCPL rows, ${dcplChecklistLayout} custom DCPL checklist columns, ${cableChecklists} cable checklist rows, ${cableChecklistLayout} custom cable checklist columns, ${documentReferences} document references, ${attachments} attachments, ${emailSettings} email settings record`
 }
 </script>
 
 <template>
   <div class="col grow scroll" style="overflow: auto">
     <input ref="importFileRef" type="file" accept=".json" hidden @change="handleImportFile" />
+    <DocumentReferenceModal v-model="showDocumentReferenceModal" :site-id="siteId" />
     <Topbar :title="topbarTitle" :subtitle="topbarSubtitle">
       <button type="button" class="btn btn-ghost" @click="triggerImportSite">
         <MaterialIcon name="upload" />
         Import
+      </button>
+      <button type="button" class="btn btn-ghost" @click="showDocumentReferenceModal = true">
+        <MaterialIcon name="link" />
+        Document Reference
       </button>
       <button type="button" class="btn btn-ghost" @click="handleExportSiteWorkbook">
         <MaterialIcon name="table_view" />
@@ -327,8 +342,20 @@ function summarizeImportPayload(data) {
         <StatCard label="Progress updates" :value="reportsThisMonth" :sub="latestReportLabel" />
         <StatCard label="Checklist progress" :value="checklistValue" accent="var(--confirm)" :sub="checklistLabel" />
         <StatCard label="Cable matrix" :value="cableMatrixValue" accent="var(--confirm)" :sub="cableMatrixLabel" />
-        <StatCard label="Antenna checklist" :value="antennaChecklistValue" accent="var(--confirm)" :sub="antennaChecklistLabel" />
-        <StatCard label="DCPL checklist" :value="dcplChecklistValue" accent="var(--confirm)" :sub="dcplChecklistLabel" />
+        <StatCard
+          v-if="shouldRenderAntennaChecklist"
+          label="Antenna checklist"
+          :value="antennaChecklistValue"
+          accent="var(--confirm)"
+          :sub="antennaChecklistLabel"
+        />
+        <StatCard
+          v-if="shouldRenderDcplChecklist"
+          label="DCPL checklist"
+          :value="dcplChecklistValue"
+          accent="var(--confirm)"
+          :sub="dcplChecklistLabel"
+        />
         <StatCard label="Cable checklist" :value="cableChecklistValue" accent="var(--confirm)" :sub="cableChecklistLabel" />
       </div>
 
@@ -380,7 +407,13 @@ function summarizeImportPayload(data) {
             </div>
             <div class="small">cable checks and labels</div>
           </button>
-          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openAntennaChecklist">
+          <button
+            v-if="shouldRenderAntennaChecklist"
+            type="button"
+            class="box p-4 col gap-2"
+            style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer"
+            @click="openAntennaChecklist"
+          >
             <div class="row items-center gap-2">
               <div class="box center icon-box" style="border-color: var(--line-2)">
                 <MaterialIcon name="settings_input_antenna" />
@@ -389,7 +422,13 @@ function summarizeImportPayload(data) {
             </div>
             <div class="small">antenna assets and comments</div>
           </button>
-          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openDcplChecklist">
+          <button
+            v-if="shouldRenderDcplChecklist"
+            type="button"
+            class="box p-4 col gap-2"
+            style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer"
+            @click="openDcplChecklist"
+          >
             <div class="row items-center gap-2">
               <div class="box center icon-box" style="border-color: var(--line-2)">
                 <MaterialIcon name="tune" />

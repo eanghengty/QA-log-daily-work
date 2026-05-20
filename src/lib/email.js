@@ -13,10 +13,7 @@ export async function buildEmailBody(report, site, settings = {}) {
   const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Phnom_Penh' })
   const siteLabel = `${site.id} - ${site.name}`
 
-  const noteLines = (report.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
-  const progressSummary = noteLines.length
-    ? noteLines.map((line) => `<div style="margin:0 0 6px;">${escapeHtml(line)}</div>`).join('\n')
-    : '<div style="margin:0;">Site progress notes captured</div>'
+  const progressSummary = formatProgressNotes(report.notes)
   let html = `<p style="margin:0 0 4px;">Dear All,</p>
 <p style="margin:0 0 14px;">Kindly find below report update for ${escapeHtml(siteLabel)}, as of ${escapeHtml(today)}</p>
 <p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
@@ -116,4 +113,30 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
+}
+
+function formatProgressNotes(notes) {
+  const lines = String(notes || '').replaceAll('\r\n', '\n').split('\n')
+  const hasContent = lines.some((line) => line.trim())
+
+  if (!hasContent) {
+    return '<div style="margin:0;">Site progress notes captured</div>'
+  }
+
+  return lines
+    .map((line) => {
+      if (!line.trim()) {
+        return '<div style="height:10px;"></div>'
+      }
+
+      return `<div style="margin:0 0 6px; white-space:pre-wrap;">${formatEmailLine(line)}</div>`
+    })
+    .join('\n')
+}
+
+function formatEmailLine(line) {
+  return escapeHtml(line.replaceAll('\t', '    '))
+    // Preserve indentation and repeated spaces for email clients like Outlook.
+    .replace(/^ +/g, (spaces) => '&nbsp;'.repeat(spaces.length))
+    .replace(/ {2,}/g, (spaces) => '&nbsp;'.repeat(spaces.length))
 }

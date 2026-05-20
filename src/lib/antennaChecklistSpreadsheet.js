@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
   'LEVEL',
@@ -10,22 +11,10 @@ const TEMPLATE_HEADERS = [
   'Comment',
 ]
 
-export const ANTENNA_CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
-export const ANTENNA_CHECKLIST_EXPORT_COLS = [
-  { wch: 22 },
-  { wch: 26 },
-  { wch: 18 },
-  { wch: 24 },
-  { wch: 22 },
-  { wch: 22 },
-  { wch: 48 },
-  { wch: 52 },
-]
+const BASE_EXPORT_HEADERS = [...TEMPLATE_HEADERS]
 
-export function downloadAntennaChecklistTemplate() {
-  const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS])
-  worksheet['!cols'] = [
+export function ANTENNA_CHECKLIST_EXPORT_COLS(customColumns = []) {
+  return [
     { wch: 22 },
     { wch: 26 },
     { wch: 18 },
@@ -33,25 +22,35 @@ export function downloadAntennaChecklistTemplate() {
     { wch: 22 },
     { wch: 22 },
     { wch: 48 },
+    ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
+    { wch: 52 },
   ]
+}
+
+export function downloadAntennaChecklistTemplate(customColumns = []) {
+  const workbook = XLSX.utils.book_new()
+  const headers = [...TEMPLATE_HEADERS, ...normalizeChecklistCustomColumns(customColumns).map((column) => column.label)]
+  const worksheet = XLSX.utils.aoa_to_sheet([headers])
+  worksheet['!cols'] = ANTENNA_CHECKLIST_EXPORT_COLS(customColumns).slice(0, headers.length)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Antenna Checklist Template')
   XLSX.writeFile(workbook, 'site-antenna-checklist-template.xlsx')
 }
 
-export function downloadAntennaChecklistExport(rows, siteName = 'site') {
+export function downloadAntennaChecklistExport(rows, siteName = 'site', customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet(buildAntennaChecklistExportRows(rows))
+  const worksheet = XLSX.utils.aoa_to_sheet(buildAntennaChecklistExportRows(rows, customColumns))
 
-  worksheet['!cols'] = ANTENNA_CHECKLIST_EXPORT_COLS
+  worksheet['!cols'] = ANTENNA_CHECKLIST_EXPORT_COLS(customColumns)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Antenna Checklist Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-antenna-checklist.xlsx`)
 }
 
-export function buildAntennaChecklistExportRows(rows) {
+export function buildAntennaChecklistExportRows(rows, customColumns = []) {
+  const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    ANTENNA_CHECKLIST_EXPORT_HEADERS,
+    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
     ...(rows || []).map((row) => [
       row.level || '',
       row.description || '',
@@ -60,6 +59,7 @@ export function buildAntennaChecklistExportRows(rows) {
       row.serialNumber || '',
       row.assetTag || '',
       row.comment || '',
+      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
       formatChangeHistory(row.changeHistory),
     ]),
   ]
@@ -85,7 +85,8 @@ export async function parseAntennaChecklistSpreadsheet(file) {
     throw new Error('The worksheet is empty.')
   }
 
-  const headerRow = rows[0].map(normalizeHeader)
+  const rawHeaderRow = rows[0].map((value) => String(value || '').trim())
+  const headerRow = rawHeaderRow.map(normalizeHeader)
   const levelIndex = headerRow.findIndex((value) => value === 'level')
   const descriptionIndex = headerRow.findIndex((value) => value === 'description')
   const makeIndex = headerRow.findIndex((value) => value === 'make')
@@ -97,6 +98,16 @@ export async function parseAntennaChecklistSpreadsheet(file) {
     (value) => value === 'assettaglabel' || value === 'assettag' || value === 'label'
   )
   const commentIndex = headerRow.findIndex((value) => value === 'comment')
+  const knownIndexes = new Set([
+    levelIndex,
+    descriptionIndex,
+    makeIndex,
+    modelIndex,
+    serialNumberIndex,
+    assetTagIndex,
+    commentIndex,
+    headerRow.findIndex((value) => value === 'log'),
+  ])
 
   if (
     levelIndex === -1 ||
@@ -112,6 +123,16 @@ export async function parseAntennaChecklistSpreadsheet(file) {
     )
   }
 
+  const customColumns = rawHeaderRow
+    .map((label, index) => ({ label, index }))
+    .filter(({ label, index }) => label && !knownIndexes.has(index))
+    .map(({ label, index }) => ({
+      id: label,
+      label,
+      index,
+      type: 'text',
+    }))
+
   const parsedRows = rows
     .slice(1)
     .map((row) => ({
@@ -122,14 +143,23 @@ export async function parseAntennaChecklistSpreadsheet(file) {
       serialNumber: toCellText(row[serialNumberIndex]),
       assetTag: toCellText(row[assetTagIndex]),
       comment: toCellText(row[commentIndex]),
+      fieldValues: Object.fromEntries(
+        customColumns.map((column) => [column.label, toCellText(row[column.index])])
+      ),
     }))
-    .filter((row) => Object.values(row).some((value) => value))
+    .filter((row) =>
+      [row.level, row.description, row.make, row.model, row.serialNumber, row.assetTag, row.comment]
+        .some((value) => value)
+    )
 
   if (!parsedRows.length) {
     throw new Error('No antenna checklist rows were found in the file.')
   }
 
-  return parsedRows
+  return {
+    rows: parsedRows,
+    customColumns,
+  }
 }
 
 function normalizeHeader(value) {

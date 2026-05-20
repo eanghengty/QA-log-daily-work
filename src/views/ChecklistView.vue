@@ -7,12 +7,14 @@ import {
   useChecklists,
 } from '../composables/useChecklists.js'
 import { useSites } from '../composables/useSites.js'
+import { useChecklistLayout } from '../composables/useChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import {
   downloadChecklistExport,
   downloadChecklistTemplate,
   parseChecklistSpreadsheet,
 } from '../lib/checklistSpreadsheet.js'
+import { CHECKLIST_COLUMN_TYPE } from '../lib/checklistColumns.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -34,11 +36,20 @@ const {
   renameSubItem,
   setSubItemStatus,
   setSubItemComment,
+  setSubItemFieldValue,
   deleteSubItem,
   importChecklistGroups,
   reorderChecklists,
   duplicateChecklist,
+  removeCustomColumnValues,
 } = useChecklists(siteId)
+const {
+  customColumns,
+  visibleColumns,
+  addCustomColumn,
+  removeCustomColumn,
+  mergeImportedCustomColumns,
+} = useChecklistLayout(siteId)
 const { logAction } = useActivityLog()
 
 const newChecklistTitle = ref('')
@@ -61,6 +72,10 @@ const activeDeleteChecklist = ref(null)
 const activeStatusLog = ref(null)
 const scrollContainerRef = ref(null)
 const autoScrollFrame = ref(null)
+const showAddColumnModal = ref(false)
+const newColumnName = ref('')
+const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
+const addColumnError = ref('')
 
 const title = computed(() => (site.value ? `${site.value.name} checklist` : 'Site checklist'))
 const subtitle = computed(() => {
@@ -73,6 +88,21 @@ const completionLabel = computed(() =>
     ? `${summary.value.completion}% complete`
     : 'No applicable checks yet'
 )
+const checklistTableStyle = computed(() => ({
+  gridTemplateColumns: [
+    'minmax(140px, 1fr)',
+    'minmax(220px, 1.3fr)',
+    'minmax(180px, 1fr)',
+    'minmax(160px, 0.9fr)',
+    ...customColumns.value.map(() => 'minmax(150px, 0.9fr)'),
+    'minmax(140px, 0.8fr)',
+  ].join(' '),
+}))
+const columnTypeOptions = [
+  { value: CHECKLIST_COLUMN_TYPE.TEXT, label: 'Text' },
+  { value: CHECKLIST_COLUMN_TYPE.NUMBER, label: 'Number' },
+  { value: CHECKLIST_COLUMN_TYPE.DATE, label: 'Date' },
+]
 
 watch(
   checklists,
@@ -107,7 +137,7 @@ function openImportPicker() {
 }
 
 function handleDownloadTemplate() {
-  downloadChecklistTemplate()
+  downloadChecklistTemplate(customColumns.value)
   showStatus('Checklist template downloaded.')
 }
 
@@ -117,7 +147,7 @@ async function handleExportChecklist() {
     return
   }
 
-  downloadChecklistExport(checklists.value, site.value?.name || siteId)
+  downloadChecklistExport(checklists.value, site.value?.name || siteId, customColumns.value)
   await logAction('Checklist exported', `${siteId} - ${checklists.value.length} main tasks`)
   showStatus('Checklist export downloaded.')
 }
@@ -202,7 +232,7 @@ async function createSubItem(checklistId) {
   const nextTitle = (newSubItemTitles.value[checklistId] || '').trim()
   if (!nextTitle) return
 
-  await addSubItem(checklistId, nextTitle)
+  await addSubItem(checklistId, nextTitle, customColumns.value)
   newSubItemTitles.value = {
     ...newSubItemTitles.value,
     [checklistId]: '',
@@ -274,8 +304,11 @@ async function handleImportFile(event) {
   isImporting.value = true
 
   try {
-    const groups = await parseChecklistSpreadsheet(file)
-    const result = await importChecklistGroups(groups)
+    const parsed = await parseChecklistSpreadsheet(file)
+    const mergedColumns = await mergeImportedCustomColumns(parsed.customColumns || [])
+    const importedColumns = mergeImportedColumns(parsed.customColumns || [], mergedColumns)
+    const groups = remapImportedGroupFieldValues(parsed.groups, parsed.customColumns || [], importedColumns)
+    const result = await importChecklistGroups(groups, importedColumns)
     const mainTaskCount = result.processedChecklists
 
     await logAction(
@@ -294,6 +327,48 @@ async function handleImportFile(event) {
   } finally {
     isImporting.value = false
   }
+}
+
+async function handleAddColumn() {
+  const label = newColumnName.value.trim()
+  if (!label) {
+    addColumnError.value = 'Column name is required.'
+    return
+  }
+
+  try {
+    await addCustomColumn({
+      label,
+      type: newColumnType.value,
+    })
+    await logAction('Checklist column added', `${siteId} - ${label}`)
+    showStatus('Checklist column added.')
+    closeAddColumnModal()
+  } catch (error) {
+    addColumnError.value = error.message
+  }
+}
+
+async function handleRemoveColumn(column) {
+  await removeCustomColumnValues(column.id)
+  await removeCustomColumn(column.id)
+  await logAction('Checklist column removed', `${siteId} - ${column.label}`)
+  showStatus('Checklist column removed.')
+}
+
+function openAddColumnModal() {
+  showAddColumnModal.value = true
+}
+
+function closeAddColumnModal() {
+  showAddColumnModal.value = false
+  newColumnName.value = ''
+  newColumnType.value = CHECKLIST_COLUMN_TYPE.TEXT
+  addColumnError.value = ''
+}
+
+async function handleCustomFieldChange(checklistId, item, column, event) {
+  await setSubItemFieldValue(checklistId, item.id, column, event.target.value)
 }
 
 function getChecklistSummary(checklist) {
@@ -486,6 +561,35 @@ function formatStatusLogDate(value) {
 function getProgressWidth(value) {
   return `${Math.min(Math.max(value || 0, 0), 100)}%`
 }
+
+function mergeImportedColumns(importedColumns, storedColumns) {
+  return (importedColumns || []).map((column) => {
+    const match = (storedColumns || []).find(
+      (item) => item.label.toLowerCase() === column.label.toLowerCase()
+    )
+    return match || column
+  })
+}
+
+function getCustomFieldValue(item, column) {
+  return item.fieldValues?.[column.id] || ''
+}
+
+function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
+  const columnIdMap = Object.fromEntries(
+    (sourceColumns || []).map((column, index) => [column.id, targetColumns[index]?.id || column.id])
+  )
+
+  return (groups || []).map((group) => ({
+    ...group,
+    items: (group.items || []).map((item) => ({
+      ...item,
+      fieldValues: Object.fromEntries(
+        Object.entries(item.fieldValues || {}).map(([key, value]) => [columnIdMap[key] || key, value])
+      ),
+    })),
+  }))
+}
 </script>
 
 <template>
@@ -499,6 +603,10 @@ function getProgressWidth(value) {
     />
 
     <Topbar :title="title" :subtitle="subtitle">
+      <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
+        <MaterialIcon name="view_column" />
+        Add column
+      </button>
       <button type="button" class="btn btn-ghost" @click="handleExportChecklist">
         <MaterialIcon name="download_for_offline" />
         Export checklist
@@ -589,6 +697,10 @@ function getProgressWidth(value) {
         >
           <MaterialIcon name="checklist" :size="34" style="color: var(--ink-3)" />
           <div class="title-md">No checklist saved yet</div>
+          <div class="checklist-grid checklist-header" :style="checklistTableStyle">
+            <div v-for="column in visibleColumns" :key="column.id">{{ column.label }}</div>
+            <div>Actions</div>
+          </div>
           <div class="small">Start with one main checklist, then add sub checks for the field team to track.</div>
         </div>
 
@@ -702,6 +814,22 @@ function getProgressWidth(value) {
                 <span class="tiny">{{ checklist.items?.length || 0 }} items</span>
               </div>
 
+              <div class="checklist-grid checklist-header" :style="checklistTableStyle">
+                <div v-for="column in visibleColumns" :key="column.id" class="header-cell">
+                  <span>{{ column.label }}</span>
+                  <button
+                    v-if="column.kind !== 'base'"
+                    type="button"
+                    class="chip chip-pending header-remove"
+                    @click="handleRemoveColumn(column)"
+                  >
+                    <MaterialIcon name="delete" :size="12" />
+                    Remove
+                  </button>
+                </div>
+                <div>Actions</div>
+              </div>
+
               <div v-if="!checklist.items?.length" class="box-dash p-4 small">
                 No sub checklist items yet. Add one below to start tracking this work area.
               </div>
@@ -710,17 +838,10 @@ function getProgressWidth(value) {
                 <div
                   v-for="item in checklist.items"
                   :key="item.id"
-                  class="box-soft p-3 row gap-3"
-                  style="align-items: center; flex-wrap: wrap"
+                  class="box-soft p-3 checklist-grid checklist-row"
+                  :style="checklistTableStyle"
                 >
-                  <label class="row items-center gap-2" style="min-width: 120px">
-                    <input
-                      type="checkbox"
-                      :checked="item.status === CHECKLIST_STATUS.DONE"
-                      @change="toggleDone(checklist.id, item)"
-                    />
-                    <span class="small" style="color: var(--ink)">Tick</span>
-                  </label>
+                  <div class="small" style="color: var(--ink)">{{ checklist.title }}</div>
 
                   <input
                     class="field grow"
@@ -730,6 +851,14 @@ function getProgressWidth(value) {
                   />
 
                   <div class="row gap-2" style="flex-wrap: wrap">
+                    <label class="row items-center gap-2">
+                      <input
+                        type="checkbox"
+                        :checked="item.status === CHECKLIST_STATUS.DONE"
+                        @change="toggleDone(checklist.id, item)"
+                      />
+                      <span class="small" style="color: var(--ink)">Done</span>
+                    </label>
                     <span class="chip" :class="getStatusClass(item.status)">
                       <MaterialIcon
                         :name="item.status === CHECKLIST_STATUS.DONE ? 'check_circle' : item.status === CHECKLIST_STATUS.NA ? 'do_not_disturb_on' : 'radio_button_unchecked'"
@@ -746,10 +875,40 @@ function getProgressWidth(value) {
                       <MaterialIcon name="do_not_disturb_on" :size="14" />
                       {{ item.status === CHECKLIST_STATUS.NA ? 'Clear N/A' : 'Mark N/A' }}
                     </button>
-                    <button type="button" class="chip" @click="openCommentModal(checklist.id, item)">
-                      <MaterialIcon name="comment" :size="14" />
-                      {{ item.comment ? 'Comment' : 'Add comment' }}
-                    </button>
+                  </div>
+
+                  <button type="button" class="chip" @click="openCommentModal(checklist.id, item)">
+                    <MaterialIcon name="comment" :size="14" />
+                    {{ item.comment ? 'Comment' : 'Add comment' }}
+                  </button>
+
+                  <template v-for="column in customColumns" :key="column.id">
+                    <input
+                      v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
+                      class="field"
+                      type="text"
+                      :value="getCustomFieldValue(item, column)"
+                      :placeholder="column.label"
+                      @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                    />
+                    <input
+                      v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
+                      class="field"
+                      type="number"
+                      :value="getCustomFieldValue(item, column)"
+                      :placeholder="column.label"
+                      @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                    />
+                    <input
+                      v-else
+                      class="field"
+                      type="date"
+                      :value="getCustomFieldValue(item, column)"
+                      @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                    />
+                  </template>
+
+                  <div class="row gap-2" style="flex-wrap: wrap">
                     <button type="button" class="chip" @click="openStatusLogModal(checklist, item)">
                       <MaterialIcon name="history" :size="14" />
                       Log
@@ -790,6 +949,77 @@ function getProgressWidth(value) {
       <MaterialIcon :name="statusTone === 'issue' ? 'error' : 'check_circle'" :size="14" />
       {{ statusMessage }}
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="showAddColumnModal"
+        class="add-site-overlay"
+        @click.self="closeAddColumnModal"
+      >
+        <div class="add-site-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Add checklist column</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeAddColumnModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Column name</div>
+            <input
+              v-model="newColumnName"
+              class="field"
+              type="text"
+              placeholder="Example: Baseline"
+              @input="addColumnError = ''"
+            />
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Column type</div>
+            <select v-model="newColumnType" class="field" style="cursor: pointer">
+              <option v-for="option in columnTypeOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="addColumnError" class="tiny" style="color: var(--issue)">{{ addColumnError }}</div>
+
+          <div class="col gap-2">
+            <div class="label">Custom columns</div>
+            <div v-if="!customColumns.length" class="box-soft p-3 small" style="color: var(--ink)">
+              No added columns yet. Baseline checklist columns stay in place and cannot be removed here.
+            </div>
+            <div v-else class="col gap-2">
+              <div
+                v-for="column in customColumns"
+                :key="column.id"
+                class="box-soft p-3 row gap-2"
+                style="justify-content: space-between; align-items: center; flex-wrap: wrap"
+              >
+                <div class="col gap-1">
+                  <div class="small" style="color: var(--ink)">{{ column.label }}</div>
+                  <div class="tiny">{{ column.type }}</div>
+                </div>
+                <button type="button" class="chip chip-pending" @click="handleRemoveColumn(column)">
+                  <MaterialIcon name="delete" :size="14" />
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-ghost" @click="closeAddColumnModal">Cancel</button>
+            <button type="button" class="btn btn-primary" @click="handleAddColumn">
+              <MaterialIcon name="save" />
+              Add column
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <Teleport to="body">
       <div
@@ -989,5 +1219,38 @@ function getProgressWidth(value) {
   max-height: 90vh;
   overflow-y: auto;
   padding: 24px;
+}
+
+.checklist-grid {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+}
+
+.checklist-header {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  background: var(--paper-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.checklist-row {
+  align-items: center;
+}
+
+.header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.header-remove {
+  padding: 2px 8px;
+  font-size: 10px;
 }
 </style>

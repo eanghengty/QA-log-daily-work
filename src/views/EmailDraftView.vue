@@ -6,6 +6,7 @@ import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useAttachments } from '../composables/useAttachments.js'
 import { useEmailSettings } from '../composables/useEmailSettings.js'
+import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import {
   buildEmailBody,
   copyToClipboard,
@@ -118,7 +119,7 @@ async function downloadDraft() {
     <div class="between p-5" style="border-bottom: 1.5px solid var(--line)">
       <div class="col gap-1">
         <div class="title-xl">Email draft</div>
-        <div class="small" style="color: var(--ink-3)">{{ site?.name || siteId }}</div>
+        <div class="small" style="color: var(--ink-3)">{{ formatSiteNameWithHopReviewer(site, siteId) }}</div>
       </div>
       <div class="row gap-2">
         <button type="button" class="btn btn-ghost" @click="router.push(`/site/${siteId}`)">
@@ -220,7 +221,7 @@ async function downloadDraft() {
             </div>
             <div
               contenteditable="true"
-              style="min-height: 160px; outline: none; font-size: 13px; line-height: 1.6"
+              style="min-height: 160px; outline: none; font-size: 13px; line-height: 1.6; white-space: pre-wrap"
               v-html="bodyHtml"
               @input="bodyHtml = $event.target.innerHTML; bodyUserEdited = true"
             />

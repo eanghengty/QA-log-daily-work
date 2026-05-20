@@ -17,6 +17,7 @@ export function useCableChecklist(siteId) {
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
+      fieldValues: normalizeFieldValues(row.fieldValues),
       changeHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -38,6 +39,16 @@ export function useCableChecklist(siteId) {
       if (previousValue === nextValue) continue
 
       nextHistory.push(createFieldHistoryEntry(field, previousValue, nextValue))
+    }
+
+    if ('fieldValues' in normalizedUpdates) {
+      const previousFieldValues = row.fieldValues || {}
+      for (const [field, nextValueRaw] of Object.entries(normalizedUpdates.fieldValues || {})) {
+        const previousValue = String(previousFieldValues[field] || '').trim()
+        const nextValue = String(nextValueRaw || '').trim()
+        if (previousValue === nextValue) continue
+        nextHistory.push(createFieldHistoryEntry(field, previousValue, nextValue))
+      }
     }
 
     return await db.cableChecklists.update(Number(id), {
@@ -87,6 +98,10 @@ export function useCableChecklist(siteId) {
           const nextValues = {
             ...existing,
             ...normalizedRow,
+            fieldValues: {
+              ...(existing.fieldValues || {}),
+              ...(normalizedRow.fieldValues || {}),
+            },
             updatedAt: new Date().toISOString(),
           }
           await db.cableChecklists.put(nextValues)
@@ -114,6 +129,26 @@ export function useCableChecklist(siteId) {
     return summary
   }
 
+  async function removeCustomColumnValues(columnId) {
+    if (!columnId) return
+
+    await db.transaction('rw', db.cableChecklists, async () => {
+      const siteRows = await db.cableChecklists.where('siteId').equals(siteId).toArray()
+
+      for (const row of siteRows) {
+        if (!row.fieldValues || !(columnId in row.fieldValues)) continue
+
+        const fieldValues = { ...row.fieldValues }
+        delete fieldValues[columnId]
+
+        await db.cableChecklists.update(Number(row.id), {
+          fieldValues,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    })
+  }
+
   return {
     rows,
     summary,
@@ -122,6 +157,7 @@ export function useCableChecklist(siteId) {
     deleteRow,
     reorderRows,
     importRows,
+    removeCustomColumnValues,
   }
 }
 
@@ -154,6 +190,7 @@ function normalizeRowValues(row) {
     sweepTestReceived: normalizeDateValue(row.sweepTestReceived),
     remark: String(row.remark || '').trim(),
     cableLength: String(row.cableLength || '').trim(),
+    fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
 
@@ -166,8 +203,15 @@ function normalizeRowUpdates(updates) {
   if ('sweepTestReceived' in next) next.sweepTestReceived = normalizeDateValue(next.sweepTestReceived)
   if ('remark' in next) next.remark = String(next.remark || '').trim()
   if ('cableLength' in next) next.cableLength = String(next.cableLength || '').trim()
+  if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+function normalizeFieldValues(value) {
+  return Object.fromEntries(
+    Object.entries(value || {}).map(([key, item]) => [String(key), String(item ?? '')])
+  )
 }
 
 function hasAnyValue(row) {

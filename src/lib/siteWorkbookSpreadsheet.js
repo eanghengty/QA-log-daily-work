@@ -29,10 +29,15 @@ const BORDER_COLOR = 'FF000000'
 
 export async function exportSiteWorkbook(siteId) {
   const { default: ExcelJS } = await import('exceljs')
-  const [site, checklists, cableMatrices, antennaChecklists, dcplChecklists, cableChecklists] =
+  const [site, checklists, checklistLayout, cableMatrixLayout, antennaChecklistLayout, dcplChecklistLayout, cableChecklistLayout, cableMatrices, antennaChecklists, dcplChecklists, cableChecklists] =
     await Promise.all([
       db.sites.get(siteId),
       db.checklists.where('siteId').equals(siteId).sortBy('order'),
+      db.checklistLayouts.get(siteId),
+      db.cableMatrixLayouts.get(siteId),
+      db.antennaChecklistLayouts.get(siteId),
+      db.dcplChecklistLayouts.get(siteId),
+      db.cableChecklistLayouts.get(siteId),
       db.cableMatrices.where('siteId').equals(siteId).sortBy('order'),
       db.antennaChecklists.where('siteId').equals(siteId).sortBy('order'),
       db.dcplChecklists.where('siteId').equals(siteId).sortBy('order'),
@@ -47,25 +52,35 @@ export async function exportSiteWorkbook(siteId) {
   workbook.creator = 'Telecom Site Tracker'
   workbook.created = new Date()
 
-  appendSheet(workbook, 'Site checklist', buildChecklistExportRows(checklists), CHECKLIST_EXPORT_COLS)
-  appendSheet(workbook, 'Cable matrix', buildCableMatrixExportRows(cableMatrices), CABLE_MATRIX_EXPORT_COLS)
+  const checklistRows = buildChecklistExportRows(checklists, checklistLayout?.customColumns || [])
+  const checklistColumns = checklistRows[0].map((_, index, row) => ({
+    wch: index === row.length - 1 ? 52 : index < 4 ? [28, 40, 16, 36][index] : 22,
+  }))
+
+  appendSheet(workbook, 'Site checklist', checklistRows, checklistColumns.length ? checklistColumns : CHECKLIST_EXPORT_COLS)
+  appendSheet(
+    workbook,
+    'Cable matrix',
+    buildCableMatrixExportRows(cableMatrices, cableMatrixLayout?.customColumns || []),
+    CABLE_MATRIX_EXPORT_COLS(cableMatrixLayout?.customColumns || [])
+  )
   appendSheet(
     workbook,
     'Antenna checklist',
-    buildAntennaChecklistExportRows(antennaChecklists),
-    ANTENNA_CHECKLIST_EXPORT_COLS
+    buildAntennaChecklistExportRows(antennaChecklists, antennaChecklistLayout?.customColumns || []),
+    ANTENNA_CHECKLIST_EXPORT_COLS(antennaChecklistLayout?.customColumns || [])
   )
   appendSheet(
     workbook,
     'DCPL checklist',
-    buildDcplChecklistExportRows(dcplChecklists),
-    DCPL_CHECKLIST_EXPORT_COLS
+    buildDcplChecklistExportRows(dcplChecklists, dcplChecklistLayout?.customColumns || []),
+    DCPL_CHECKLIST_EXPORT_COLS(dcplChecklistLayout?.customColumns || [])
   )
   appendSheet(
     workbook,
     'Cable checklist',
-    buildCableChecklistExportRows(cableChecklists),
-    CABLE_CHECKLIST_EXPORT_COLS
+    buildCableChecklistExportRows(cableChecklists, cableChecklistLayout?.customColumns || []),
+    CABLE_CHECKLIST_EXPORT_COLS(cableChecklistLayout?.customColumns || [])
   )
 
   const buffer = await workbook.xlsx.writeBuffer()

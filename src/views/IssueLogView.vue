@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import AttachmentViewer from '../components/AttachmentViewer.vue'
@@ -26,7 +27,7 @@ const showViewer = ref(false)
 const isSaving = ref(false)
 const saveError = ref('')
 const pageTitle = computed(() => (isEdit.value ? 'Edit blocker' : 'Log a blocker'))
-const pageSubtitle = computed(() => `${site.value?.name || siteId} - field risk or delay`)
+const pageSubtitle = computed(() => `${formatSiteNameWithHopReviewer(site.value, siteId)} - field risk or delay`)
 
 watch(
   issue,

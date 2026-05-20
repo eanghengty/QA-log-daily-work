@@ -31,15 +31,18 @@ or `npm.cmd run dev` when that happens.
 
 - `index.js` defines the Dexie schema and `initDb()`.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
-  `checklists`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`, `cableChecklists`,
-  plus supporting lookup/activity tables already in the app.
+  `checklists`, `checklistLayouts`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`,
+  `cableChecklists`, `documentReferences`, plus supporting lookup/activity tables already in the app.
 - The app starts empty. Do not add demo, dummy, placeholder, or hardcoded site records.
 - Internal table/field names still use `reports`, `issues`, and `confirms`, but the user-facing
   domain language is telecom progress updates, blockers, and approvals.
 - `initDb()` only removes the old untouched 8-site demo seed if it is detected in an
   existing browser IndexedDB. It should not delete user-created data.
 - `checklists` stores one main checklist record per site. Each record owns an `items` array for
-  sub checklist rows, including sub task status, comment, and local item ID.
+  sub checklist rows, including sub task status, comment, local item ID, and site-specific
+  custom field values.
+- `checklistLayouts` stores one site-level checklist layout record per site, including extra
+  custom checklist columns and their input types (`text`, `number`, or `date`).
 - `cableMatrices` stores one cable row per record, including cable number, cable label at origin
   end destination, `from`, `to`, test / label check statuses, drag order, and row-level change log.
 - `antennaChecklists` stores one antenna asset row per record, including `level`, `description`,
@@ -49,6 +52,8 @@ or `npm.cmd run dev` when that happens.
 - `cableChecklists` stores one cable checklist row per record, including `level`, `cableLabel`,
   `cableId`, `hopCriteria`, `sweepTestReceived`, `remark`, `cableLength`, drag order, and
   row-level change log.
+- `documentReferences` stores one titled document link per site for quick access from the site
+  dashboard top bar.
 
 ### Reactive Store (`src/composables/`)
 
@@ -57,7 +62,10 @@ or `npm.cmd run dev` when that happens.
 - `useReports.js`, `useIssues.js`, and `useConfirms.js` expose per-site CRUD plus reactive
   single-record helpers for edit views.
 - `useChecklists.js` owns per-site main checklist CRUD, sub checklist CRUD, summary counts,
-  Excel import merge logic, drag reorder persistence, and duplicate-name protection.
+  custom field persistence, Excel import merge logic, drag reorder persistence, and
+  duplicate-name protection.
+- `useChecklistLayout.js` owns per-site checklist custom columns, including column type selection
+  and merge behavior for imported checklist sheets.
 - `useCableMatrix.js` owns per-site cable matrix CRUD, summary counts, Excel import merge logic,
   drag reorder persistence, and row-level change logging for statuses plus `from` / `to` edits.
 - `useAntennaChecklist.js` owns per-site antenna checklist CRUD, summary counts, Excel import,
@@ -74,12 +82,13 @@ or `npm.cmd run dev` when that happens.
 
 ### Checklist Excel (`src/lib/checklistSpreadsheet.js`)
 
-- `downloadChecklistTemplate()` exports a local `.xlsx` template with `Main task`, `Sub task`,
-  `Status`, and `Comment` columns.
+- `downloadChecklistTemplate()` exports a local `.xlsx` template with baseline `Main task`,
+  `Sub task`, `Status`, and `Comment` columns, plus any site-specific custom checklist columns.
 - `downloadChecklistExport()` exports current checklist rows with repeated `Main task`, `Status`,
-  `Comment`, and `Log` columns.
+  `Comment`, all site-specific custom checklist columns, and `Log`.
 - `parseChecklistSpreadsheet()` reads the first worksheet and groups repeated `Main task` rows
-  under the same main checklist.
+  under the same main checklist, while treating any non-baseline headers as imported custom
+  checklist columns.
 - Blank `Main task` cells inherit the most recent non-blank main task during import.
 
 ### Cable Matrix Excel (`src/lib/cableMatrixSpreadsheet.js`)
@@ -105,8 +114,8 @@ or `npm.cmd run dev` when that happens.
 ### Site Import / Export (`src/lib/backup.js`)
 
 - `exportSite()` must include all per-site records for progress updates, blockers, confirmations,
-  site checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, email settings,
-  and linked attachments.
+  site checklist, checklist custom columns, cable matrix, antenna checklist, DCPL checklist,
+  cable checklist, document references, email settings, and linked attachments.
 - Site export payloads include a `summary` block so the site dashboard import flow can show the
   user exactly what the incoming file contains before replacing current site data.
 - `importSite()` must restore all of those tables for the selected site, not just the original
@@ -144,6 +153,8 @@ or `npm.cmd run dev` when that happens.
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
 - The checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist workflows
   live on their own routes and are linked from the site dashboard quick-action area.
+- The site dashboard top bar includes `Document Reference`, which opens a modal for site-specific
+  titled document links.
 
 ## Conventions
 
@@ -158,6 +169,8 @@ or `npm.cmd run dev` when that happens.
   `useConfirmById()` for edit/detail views. Do not call async `get*ById()` inside `computed`.
 - **Site fields**: internal `url` stores the user-facing `Location / area` value. Do not label
   it as a website URL.
+- **Site fields**: sites also store `hopReviewer`. Treat it as required on new-site flows, and
+  render `NA` for older data when the field is missing.
 - **Styling**: keep the hand-drawn wireframe look. Design tokens are CSS custom properties in
   `src/assets/main.css`; reusable primitives include `.box`, `.chip`, `.btn`, `.field`,
   `.label`, and `.squiggle`.
@@ -171,11 +184,17 @@ or `npm.cmd run dev` when that happens.
 - **Checklist modals**: use styled in-app modals for duplicate, delete, and comment flows.
   Do not use raw browser `prompt()` or `confirm()` for checklist interactions.
 - **Checklist import**: keep the Excel contract simple: `Main task` and `Sub task` columns.
-  Repeated `Main task` values should append to the same main checklist.
+  Repeated `Main task` values should append to the same main checklist. Any extra checklist
+  columns beyond the baseline set should be treated as site-specific custom columns.
 - **Checklist UX**: preserve the current sticky summary/add card area, collapsible main checklist
-  cards, drag reordering, auto-scroll during drag, and per-sub-check comment modal behavior.
-- **Checklist export/logs**: checklist export includes `Status`, `Comment`, and `Log`. Sub checklist
-  logs must continue recording change dates for done / not done / N/A changes.
+  cards, drag reordering, auto-scroll during drag, per-sub-check comment modal behavior, and the
+  checklist table header row even when no sub-check data exists yet.
+- **Checklist custom columns**: custom checklist columns are site-specific, stored separately from
+  the checklist rows, support `text`, `number`, and `date` input types, and must round-trip
+  through site export/import and checklist Excel export/import.
+- **Checklist export/logs**: checklist export includes `Status`, `Comment`, any custom checklist
+  columns, and `Log`. Sub checklist logs must continue recording change dates for done / not done /
+  N/A changes.
 - **Cable matrix columns**: cable matrix rows include `Cable Number`, `Cable label at origin end destination`,
   `From`, `To`, `Test`, `Label origin`, and `Label end`.
 - **Cable matrix statuses**: `Test`, `Label origin`, and `Label end` use `No` / `OK` dropdowns
@@ -205,8 +224,13 @@ or `npm.cmd run dev` when that happens.
 - **Attachments**: store field proof through `AttachmentDropzone` / `useAttachments`; persist
   attachment ID arrays as plain arrays, not Vue reactive proxies.
 - **Site import/export**: site-level import and export from the site dashboard must always cover
-  updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist,
-  cable checklist, email settings, and linked attachments.
+  updates, blockers, confirmations, site checklist, checklist custom columns, cable matrix,
+  antenna checklist, DCPL checklist, cable checklist, document references, email settings,
+  and linked attachments.
+- **Document references**: document references are site-specific titled links managed from the
+  site dashboard top bar modal and must be included in site delete and site import/export flows.
+- **Scope gating**: site scope checks are case-insensitive. `macro` sites must not expose the
+  DCPL checklist, and `tx` sites must not expose the antenna or DCPL checklist.
 
 ## Current Routes
 
@@ -234,44 +258,55 @@ After changes, run `npm.cmd run build` on Windows or `npm run build` elsewhere.
 Then check the app in the browser:
 
 1. Fresh/clean IndexedDB overview shows 0 telecom sites and an empty-state add-site action.
-2. Add a site with a location / area, then confirm it appears in the sidebar and overview.
+2. Add a site with a location / area and `HOP reviewer`, then confirm it appears in the sidebar
+   and overview.
 3. Open the site dashboard; settings, new update, log blocker, and save approval actions open.
-4. New progress update -> save -> appears in history -> reload -> still there.
-5. New progress update -> save & generate email -> opens the update email draft.
-6. Email draft toggles update the body; copy and `.eml` download buttons work.
-7. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
-8. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
-9. Site settings can update site fields and delete the site with the two-click confirm action.
-10. Checklist view opens from the site dashboard and shows the sticky summary section correctly.
-11. Main checklist cards load collapsed by default, can expand/collapse, and keep their summary
+4. Site header text shows `HOP reviewer: ...`, and older sites without a saved reviewer show `NA`.
+5. Site dashboard top bar `Document Reference` opens a modal, saves title + link entries, shows
+   saved links on reload, and includes them in site import/export.
+6. New progress update -> save -> appears in history -> reload -> still there.
+7. New progress update -> save & generate email -> opens the update email draft.
+8. Email draft toggles update the body; copy and `.eml` download buttons work.
+9. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
+10. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
+11. Site settings can update site fields and delete the site with the two-click confirm action.
+12. Checklist view opens from the site dashboard and shows the sticky summary section correctly.
+13. Main checklist cards load collapsed by default, can expand/collapse, and keep their summary
     details visible.
-12. Main checklist drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
-13. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
-14. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
-15. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
-16. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
-17. Checklist Excel template downloads with `Main task`, `Sub task`, `Status`, and `Comment`
-    columns, checklist export includes `Log`, and checklist import groups repeated main task rows
-    together.
-18. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
+14. Main checklist drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+15. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
+16. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
+17. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
+18. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
+19. Checklist table headers show even with no sub-check data, and adding a custom checklist column
+    asks for `Text`, `Number`, or `Date`.
+20. Custom checklist column values save on the site, reload correctly, and travel with site
+    JSON export/import.
+21. Checklist Excel template downloads with baseline `Main task`, `Sub task`, `Status`, and
+    `Comment` columns plus site custom columns, checklist export includes custom columns and `Log`,
+    and checklist import groups repeated main task rows together.
+22. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
     with `Cable Number`, `Cable label at origin end destination`, `From`, `To`, `Test`,
     `Label origin`, and `Label end`.
-19. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
-20. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
+23. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+24. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
     remain on reload.
-21. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
+25. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
     `From`, `To`, `Test`, `Label origin`, and `Label end`, and export includes `Log`.
-22. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
+26. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
     `Make`, `Model`, `Serial Number`, `Asset Tag / Label`, and `Comment`, and keeps row edits
     after reload.
-23. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
+27. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
     `Model`, `Label`, `Serial Number`, `dB`, and `Comment`, and imports/exports those columns.
-24. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
+28. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
     `Cable ID`, `HOP Criteria`, `Sweep test received`, `Remark`, and `Cable length Est. + 10 %`.
-25. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
+29. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
     picker, and saved dates remain correct on reload.
-26. Cable checklist summary uses cable-length totals rather than serial-number totals.
-27. Site dashboard export includes the newer antenna, DCPL, and cable checklist data, and site
-    import confirmation clearly describes the incoming counts before replacing current site data.
-28. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+30. Cable checklist summary uses cable-length totals rather than serial-number totals.
+31. `macro` scope hides the DCPL checklist entry points, and `tx` scope hides both antenna and
+    DCPL checklist entry points, including direct-route access.
+32. Site dashboard export includes checklist custom columns, document references, and the newer
+    antenna, DCPL, and cable checklist data, and site import confirmation clearly describes the
+    incoming counts before replacing current site data.
+33. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

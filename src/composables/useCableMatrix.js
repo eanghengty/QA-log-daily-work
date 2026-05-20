@@ -28,6 +28,7 @@ export function useCableMatrix(siteId) {
       testStatus: normalizeCheckStatus(row.testStatus),
       labelOriginStatus: normalizeCheckStatus(row.labelOriginStatus),
       labelEndStatus: normalizeCheckStatus(row.labelEndStatus),
+      fieldValues: normalizeFieldValues(row.fieldValues),
       statusHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -125,6 +126,10 @@ export function useCableMatrix(siteId) {
           const nextValues = {
             ...existing,
             ...normalizedRow,
+            fieldValues: {
+              ...(existing.fieldValues || {}),
+              ...(normalizedRow.fieldValues || {}),
+            },
             updatedAt: new Date().toISOString(),
           }
           await db.cableMatrices.put(nextValues)
@@ -152,6 +157,26 @@ export function useCableMatrix(siteId) {
     return summary
   }
 
+  async function removeCustomColumnValues(columnId) {
+    if (!columnId) return
+
+    await db.transaction('rw', db.cableMatrices, async () => {
+      const siteRows = await db.cableMatrices.where('siteId').equals(siteId).toArray()
+
+      for (const row of siteRows) {
+        if (!row.fieldValues || !(columnId in row.fieldValues)) continue
+
+        const fieldValues = { ...row.fieldValues }
+        delete fieldValues[columnId]
+
+        await db.cableMatrices.update(Number(row.id), {
+          fieldValues,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    })
+  }
+
   return {
     rows,
     summary,
@@ -161,6 +186,7 @@ export function useCableMatrix(siteId) {
     reorderRows,
     setRowStatus,
     importRows,
+    removeCustomColumnValues,
   }
 }
 
@@ -204,6 +230,7 @@ function normalizeImportedRow(row) {
     testStatus: normalizeCheckStatus(row.testStatus),
     labelOriginStatus: normalizeCheckStatus(row.labelOriginStatus),
     labelEndStatus: normalizeCheckStatus(row.labelEndStatus),
+    fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
 
@@ -217,8 +244,15 @@ function normalizeRowUpdates(updates) {
   if ('testStatus' in next) next.testStatus = normalizeCheckStatus(next.testStatus)
   if ('labelOriginStatus' in next) next.labelOriginStatus = normalizeCheckStatus(next.labelOriginStatus)
   if ('labelEndStatus' in next) next.labelEndStatus = normalizeCheckStatus(next.labelEndStatus)
+  if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+function normalizeFieldValues(value) {
+  return Object.fromEntries(
+    Object.entries(value || {}).map(([key, item]) => [String(key), String(item ?? '')])
+  )
 }
 
 function buildRowKey(row) {

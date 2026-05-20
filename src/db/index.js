@@ -151,6 +151,152 @@ db.version(11).stores({
   cableChecklists: '++id, siteId, order',
 })
 
+db.version(12).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+}).upgrade(async (tx) => {
+  await tx.table('sites').toCollection().modify((site) => {
+    if (!`${site.hopReviewer || ''}`.trim()) {
+      site.hopReviewer = 'NA'
+    }
+  })
+})
+
+db.version(13).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+})
+
+db.version(14).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+})
+
+db.version(15).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+})
+
+db.version(16).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+})
+
+db.version(17).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+})
+
+db.version(18).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }
@@ -185,10 +331,16 @@ async function cleanLegacyDemoData() {
     db.attachments,
     db.emailSettings,
     db.checklists,
+    db.checklistLayouts,
+    db.cableMatrixLayouts,
+    db.antennaChecklistLayouts,
+    db.dcplChecklistLayouts,
+    db.cableChecklistLayouts,
     db.cableMatrices,
     db.antennaChecklists,
     db.dcplChecklists,
     db.cableChecklists,
+    db.documentReferences,
     async () => {
       await Promise.all([
         db.sites.clear(),
@@ -198,10 +350,16 @@ async function cleanLegacyDemoData() {
         db.attachments.clear(),
         db.emailSettings.clear(),
         db.checklists.clear(),
+        db.checklistLayouts.clear(),
+        db.cableMatrixLayouts.clear(),
+        db.antennaChecklistLayouts.clear(),
+        db.dcplChecklistLayouts.clear(),
+        db.cableChecklistLayouts.clear(),
         db.cableMatrices.clear(),
         db.antennaChecklists.clear(),
         db.dcplChecklists.clear(),
         db.cableChecklists.clear(),
+        db.documentReferences.clear(),
       ])
     }
   )

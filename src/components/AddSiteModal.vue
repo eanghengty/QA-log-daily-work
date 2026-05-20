@@ -38,8 +38,8 @@ async function checkIdDuplicate() {
 }
 
 async function save() {
-  if (!form.value.id.trim() || !form.value.name.trim()) {
-    alert('Site ID and site name are required')
+  if (!form.value.id.trim() || !form.value.name.trim() || !form.value.hopReviewer.trim()) {
+    alert('Site ID, site name, and HOP reviewer are required')
     return
   }
   if (idError.value) return
@@ -52,6 +52,7 @@ async function save() {
     await addSite({
       id: siteId,
       name: form.value.name.trim(),
+      hopReviewer: form.value.hopReviewer.trim(),
       scope: form.value.scope.trim(),
       comment: form.value.comment.trim(),
       url: form.value.url.trim(),
@@ -73,7 +74,7 @@ async function save() {
 }
 
 function emptyForm() {
-  return { id: '', name: '', scope: '', comment: '', url: '' }
+  return { id: '', name: '', hopReviewer: '', scope: '', comment: '', url: '' }
 }
 </script>
 
@@ -108,6 +109,11 @@ function emptyForm() {
           <div class="col gap-2">
             <div class="label">Site name <span style="color: var(--ink-3); font-weight: 400">(required)</span></div>
             <input v-model="form.name" class="field" placeholder="e.g. Tower 01 - Blacktown" :disabled="isSaving" />
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">HOP reviewer <span style="color: var(--ink-3); font-weight: 400">(required)</span></div>
+            <input v-model="form.hopReviewer" class="field" placeholder="e.g. Alex Tan" :disabled="isSaving" />
           </div>
 
           <div class="col gap-2">

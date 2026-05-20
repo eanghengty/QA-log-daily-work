@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { useConfirmSources } from '../composables/useConfirmSources.js'
+import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import AttachmentViewer from '../components/AttachmentViewer.vue'
@@ -29,7 +30,7 @@ const isSaving = ref(false)
 const saveError = ref('')
 const hasAttachments = computed(() => form.value.attachmentIds.length > 0)
 const pageTitle = computed(() => (isEdit.value ? 'Edit confirmation' : 'Save a confirmation'))
-const pageSubtitle = computed(() => `${site.value?.name || siteId} - field sign-off`)
+const pageSubtitle = computed(() => `${formatSiteNameWithHopReviewer(site.value, siteId)} - field sign-off`)
 
 watch(
   confirm,

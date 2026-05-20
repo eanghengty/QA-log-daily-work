@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
   'LEVEL',
@@ -10,22 +11,10 @@ const TEMPLATE_HEADERS = [
   'Cable length Est. + 10 %',
 ]
 
-export const CABLE_CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
-export const CABLE_CHECKLIST_EXPORT_COLS = [
-  { wch: 22 },
-  { wch: 34 },
-  { wch: 14 },
-  { wch: 58 },
-  { wch: 20 },
-  { wch: 14 },
-  { wch: 22 },
-  { wch: 52 },
-]
+const BASE_EXPORT_HEADERS = [...TEMPLATE_HEADERS]
 
-export function downloadCableChecklistTemplate() {
-  const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS])
-  worksheet['!cols'] = [
+export function CABLE_CHECKLIST_EXPORT_COLS(customColumns = []) {
+  return [
     { wch: 22 },
     { wch: 34 },
     { wch: 14 },
@@ -33,25 +22,35 @@ export function downloadCableChecklistTemplate() {
     { wch: 20 },
     { wch: 14 },
     { wch: 22 },
+    ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
+    { wch: 52 },
   ]
+}
+
+export function downloadCableChecklistTemplate(customColumns = []) {
+  const workbook = XLSX.utils.book_new()
+  const headers = [...TEMPLATE_HEADERS, ...normalizeChecklistCustomColumns(customColumns).map((column) => column.label)]
+  const worksheet = XLSX.utils.aoa_to_sheet([headers])
+  worksheet['!cols'] = CABLE_CHECKLIST_EXPORT_COLS(customColumns).slice(0, headers.length)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Checklist Template')
   XLSX.writeFile(workbook, 'site-cable-checklist-template.xlsx')
 }
 
-export function downloadCableChecklistExport(rows, siteName = 'site') {
+export function downloadCableChecklistExport(rows, siteName = 'site', customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet(buildCableChecklistExportRows(rows))
+  const worksheet = XLSX.utils.aoa_to_sheet(buildCableChecklistExportRows(rows, customColumns))
 
-  worksheet['!cols'] = CABLE_CHECKLIST_EXPORT_COLS
+  worksheet['!cols'] = CABLE_CHECKLIST_EXPORT_COLS(customColumns)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Cable Checklist Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-cable-checklist.xlsx`)
 }
 
-export function buildCableChecklistExportRows(rows) {
+export function buildCableChecklistExportRows(rows, customColumns = []) {
+  const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    CABLE_CHECKLIST_EXPORT_HEADERS,
+    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
     ...(rows || []).map((row) => [
       row.level || '',
       row.cableLabel || '',
@@ -60,6 +59,7 @@ export function buildCableChecklistExportRows(rows) {
       row.sweepTestReceived || '',
       row.remark || '',
       row.cableLength || '',
+      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
       formatChangeHistory(row.changeHistory),
     ]),
   ]
@@ -79,7 +79,8 @@ export async function parseCableChecklistSpreadsheet(file) {
   })
   if (!rows.length) throw new Error('The worksheet is empty.')
 
-  const headerRow = rows[0].map(normalizeHeader)
+  const rawHeaderRow = rows[0].map((value) => String(value || '').trim())
+  const headerRow = rawHeaderRow.map(normalizeHeader)
   const levelIndex = headerRow.findIndex((value) => value === 'level')
   const cableLabelIndex = headerRow.findIndex((value) => value === 'cablelabel')
   const cableIdIndex = headerRow.findIndex((value) => value === 'cableid')
@@ -89,6 +90,16 @@ export async function parseCableChecklistSpreadsheet(file) {
   const cableLengthIndex = headerRow.findIndex(
     (value) => value === 'cablelengthest10' || value === 'cablelength' || value === 'length'
   )
+  const knownIndexes = new Set([
+    levelIndex,
+    cableLabelIndex,
+    cableIdIndex,
+    hopCriteriaIndex,
+    sweepTestIndex,
+    remarkIndex,
+    cableLengthIndex,
+    headerRow.findIndex((value) => value === 'log'),
+  ])
 
   if (
     levelIndex === -1 ||
@@ -104,6 +115,16 @@ export async function parseCableChecklistSpreadsheet(file) {
     )
   }
 
+  const customColumns = rawHeaderRow
+    .map((label, index) => ({ label, index }))
+    .filter(({ label, index }) => label && !knownIndexes.has(index))
+    .map(({ label, index }) => ({
+      id: label,
+      label,
+      index,
+      type: 'text',
+    }))
+
   const parsedRows = rows
     .slice(1)
     .map((row) => ({
@@ -114,14 +135,23 @@ export async function parseCableChecklistSpreadsheet(file) {
       sweepTestReceived: toDateCellText(row[sweepTestIndex]),
       remark: toCellText(row[remarkIndex]),
       cableLength: toCellText(row[cableLengthIndex]),
+      fieldValues: Object.fromEntries(
+        customColumns.map((column) => [column.label, toCellText(row[column.index])])
+      ),
     }))
-    .filter((row) => Object.values(row).some((value) => value))
+    .filter((row) =>
+      [row.level, row.cableLabel, row.cableId, row.hopCriteria, row.sweepTestReceived, row.remark, row.cableLength]
+        .some((value) => value)
+    )
 
   if (!parsedRows.length) {
     throw new Error('No cable checklist rows were found in the file.')
   }
 
-  return parsedRows
+  return {
+    rows: parsedRows,
+    customColumns,
+  }
 }
 
 function normalizeHeader(value) {

@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
   'LEVEL',
@@ -11,23 +12,10 @@ const TEMPLATE_HEADERS = [
   'Comment',
 ]
 
-export const DCPL_CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
-export const DCPL_CHECKLIST_EXPORT_COLS = [
-  { wch: 22 },
-  { wch: 28 },
-  { wch: 18 },
-  { wch: 20 },
-  { wch: 14 },
-  { wch: 22 },
-  { wch: 10 },
-  { wch: 52 },
-  { wch: 52 },
-]
+const BASE_EXPORT_HEADERS = [...TEMPLATE_HEADERS]
 
-export function downloadDcplChecklistTemplate() {
-  const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS])
-  worksheet['!cols'] = [
+export function DCPL_CHECKLIST_EXPORT_COLS(customColumns = []) {
+  return [
     { wch: 22 },
     { wch: 28 },
     { wch: 18 },
@@ -36,25 +24,35 @@ export function downloadDcplChecklistTemplate() {
     { wch: 22 },
     { wch: 10 },
     { wch: 52 },
+    ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
+    { wch: 52 },
   ]
+}
+
+export function downloadDcplChecklistTemplate(customColumns = []) {
+  const workbook = XLSX.utils.book_new()
+  const headers = [...TEMPLATE_HEADERS, ...normalizeChecklistCustomColumns(customColumns).map((column) => column.label)]
+  const worksheet = XLSX.utils.aoa_to_sheet([headers])
+  worksheet['!cols'] = DCPL_CHECKLIST_EXPORT_COLS(customColumns).slice(0, headers.length)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'DCPL Checklist Template')
   XLSX.writeFile(workbook, 'site-dcpl-checklist-template.xlsx')
 }
 
-export function downloadDcplChecklistExport(rows, siteName = 'site') {
+export function downloadDcplChecklistExport(rows, siteName = 'site', customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet(buildDcplChecklistExportRows(rows))
+  const worksheet = XLSX.utils.aoa_to_sheet(buildDcplChecklistExportRows(rows, customColumns))
 
-  worksheet['!cols'] = DCPL_CHECKLIST_EXPORT_COLS
+  worksheet['!cols'] = DCPL_CHECKLIST_EXPORT_COLS(customColumns)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'DCPL Checklist Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-dcpl-checklist.xlsx`)
 }
 
-export function buildDcplChecklistExportRows(rows) {
+export function buildDcplChecklistExportRows(rows, customColumns = []) {
+  const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    DCPL_CHECKLIST_EXPORT_HEADERS,
+    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
     ...(rows || []).map((row) => [
       row.level || '',
       row.description || '',
@@ -64,6 +62,7 @@ export function buildDcplChecklistExportRows(rows) {
       row.serialNumber || '',
       row.dbValue || '',
       row.comment || '',
+      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
       formatChangeHistory(row.changeHistory),
     ]),
   ]
@@ -83,7 +82,8 @@ export async function parseDcplChecklistSpreadsheet(file) {
   })
   if (!rows.length) throw new Error('The worksheet is empty.')
 
-  const headerRow = rows[0].map(normalizeHeader)
+  const rawHeaderRow = rows[0].map((value) => String(value || '').trim())
+  const headerRow = rawHeaderRow.map(normalizeHeader)
   const levelIndex = headerRow.findIndex((value) => value === 'level')
   const descriptionIndex = headerRow.findIndex((value) => value === 'description')
   const makeIndex = headerRow.findIndex((value) => value === 'make')
@@ -94,6 +94,17 @@ export async function parseDcplChecklistSpreadsheet(file) {
   const commentIndex = headerRow.findIndex(
     (value) => value === 'comment' || value === 'postinstallationphotocheck'
   )
+  const knownIndexes = new Set([
+    levelIndex,
+    descriptionIndex,
+    makeIndex,
+    modelIndex,
+    labelIndex,
+    serialNumberIndex,
+    dbIndex,
+    commentIndex,
+    headerRow.findIndex((value) => value === 'log'),
+  ])
 
   if (
     levelIndex === -1 ||
@@ -110,6 +121,16 @@ export async function parseDcplChecklistSpreadsheet(file) {
     )
   }
 
+  const customColumns = rawHeaderRow
+    .map((label, index) => ({ label, index }))
+    .filter(({ label, index }) => label && !knownIndexes.has(index))
+    .map(({ label, index }) => ({
+      id: label,
+      label,
+      index,
+      type: 'text',
+    }))
+
   const parsedRows = rows
     .slice(1)
     .map((row) => ({
@@ -121,14 +142,23 @@ export async function parseDcplChecklistSpreadsheet(file) {
       serialNumber: toCellText(row[serialNumberIndex]),
       dbValue: toCellText(row[dbIndex]),
       comment: toCellText(row[commentIndex]),
+      fieldValues: Object.fromEntries(
+        customColumns.map((column) => [column.label, toCellText(row[column.index])])
+      ),
     }))
-    .filter((row) => Object.values(row).some((value) => value))
+    .filter((row) =>
+      [row.level, row.description, row.make, row.model, row.label, row.serialNumber, row.dbValue, row.comment]
+        .some((value) => value)
+    )
 
   if (!parsedRows.length) {
     throw new Error('No DCPL checklist rows were found in the file.')
   }
 
-  return parsedRows
+  return {
+    rows: parsedRows,
+    customColumns,
+  }
 }
 
 function normalizeHeader(value) {

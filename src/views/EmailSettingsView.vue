@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useEmailSettings } from '../composables/useEmailSettings.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import Topbar from '../components/Topbar.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
@@ -43,7 +44,7 @@ async function copyFromSite() {
   to.value = saved.to ?? ''
   cc.value = saved.cc ?? ''
   defaultSubject.value = saved.defaultSubject ?? ''
-  status.value = `Copied from ${otherSites.value.find((s) => s.id === copyFromSiteId.value)?.name || copyFromSiteId.value} — review and save`
+  status.value = `Copied from ${otherSites.value.find((s) => s.id === copyFromSiteId.value)?.name || copyFromSiteId.value} - review and save`
   setTimeout(() => { status.value = '' }, 4000)
 }
 
@@ -64,7 +65,7 @@ function goBack() {
 <template>
   <div class="col grow">
     <Topbar
-      :title="`Email settings — ${site?.name || siteId}`"
+      :title="`Email settings - ${formatSiteNameWithHopReviewer(site, siteId)}`"
       subtitle="Default recipients and subject for email drafts"
     >
       <button type="button" class="btn btn-ghost" @click="goBack">
@@ -78,11 +79,9 @@ function goBack() {
     </Topbar>
 
     <div class="col gap-5 p-5" style="max-width: 600px">
-      <div v-if="!loaded" class="small">Loading…</div>
+      <div v-if="!loaded" class="small">Loading...</div>
       <template v-else>
-
-        <!-- Copy from another site -->
-        <div class="box-dash p-4 col gap-3" v-if="otherSites.length > 0">
+        <div v-if="otherSites.length > 0" class="box-dash p-4 col gap-3">
           <div class="label">Copy settings from another site</div>
           <div class="row gap-2 items-center">
             <select
@@ -90,7 +89,7 @@ function goBack() {
               class="field grow"
               style="cursor: pointer"
             >
-              <option value="" disabled>Select a site…</option>
+              <option value="" disabled>Select a site...</option>
               <option v-for="s in otherSites" :key="s.id" :value="s.id">
                 {{ s.name }}
               </option>
@@ -105,55 +104,31 @@ function goBack() {
               Copy
             </button>
           </div>
-          <div class="tiny" style="color: var(--ink-3)">Fills in the fields below — review then click Save settings to apply.</div>
+          <div class="tiny" style="color: var(--ink-3)">Fills in the fields below - review then click Save settings to apply.</div>
         </div>
 
-        <!-- Recipients -->
-        <div class="box p-4 col gap-4">
-          <div class="label">Default recipients</div>
+        <div class="col gap-3">
           <div class="col gap-2">
-            <label class="label" for="to-field">To</label>
-            <input
-              id="to-field"
-              v-model="to"
-              class="field"
-              type="text"
-              placeholder="email@example.com, another@example.com"
-            />
-            <div class="tiny" style="color: var(--ink-3)">Comma-separated email addresses</div>
+            <div class="label">To</div>
+            <input v-model="to" class="field" placeholder="Primary recipients" />
           </div>
-          <div class="col gap-2">
-            <label class="label" for="cc-field">CC</label>
-            <input
-              id="cc-field"
-              v-model="cc"
-              class="field"
-              type="text"
-              placeholder="email@example.com, another@example.com"
-            />
-            <div class="tiny" style="color: var(--ink-3)">Comma-separated email addresses</div>
-          </div>
-        </div>
 
-        <!-- Default subject prefix -->
-        <div class="box p-4 col gap-4">
-          <div class="label">Default subject prefix</div>
           <div class="col gap-2">
+            <div class="label">Cc</div>
+            <input v-model="cc" class="field" placeholder="Copy recipients" />
+          </div>
+
+          <div class="col gap-2">
+            <div class="label">Default subject prefix</div>
             <input
               v-model="defaultSubject"
               class="field"
-              type="text"
-              placeholder="e.g. [SITE-01] Progress update"
+              placeholder="Used before the report date"
             />
-            <div class="tiny" style="color: var(--ink-3)">
-              Leave blank to auto-generate from site ID. Today's date (Cambodia time) is always appended automatically.
-            </div>
+            <div class="tiny" style="color: var(--ink-3)">The report date is added automatically when generating an email draft.</div>
           </div>
-        </div>
 
-        <div v-if="status" class="chip chip-confirm" style="align-self: flex-start">
-          <MaterialIcon name="check_circle" :size="14" />
-          {{ status }}
+          <div v-if="status" class="tiny" style="color: var(--confirm)">{{ status }}</div>
         </div>
       </template>
     </div>

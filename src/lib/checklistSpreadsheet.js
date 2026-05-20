@@ -1,34 +1,54 @@
 import * as XLSX from 'xlsx'
+import {
+  BASE_CHECKLIST_COLUMNS,
+  CHECKLIST_COLUMN_TYPE,
+  normalizeChecklistCustomColumns,
+  normalizeChecklistFieldValue,
+} from './checklistColumns.js'
 
-const TEMPLATE_HEADERS = ['Main task', 'Sub task', 'Status', 'Comment']
-export const CHECKLIST_EXPORT_HEADERS = ['Main task', 'Sub task', 'Status', 'Comment', 'Log']
-export const CHECKLIST_EXPORT_COLS = [{ wch: 28 }, { wch: 40 }, { wch: 14 }, { wch: 36 }, { wch: 52 }]
+const TEMPLATE_HEADERS = BASE_CHECKLIST_COLUMNS.map((column) => column.label)
 const STATUS_DONE = 'done'
 const STATUS_NOT_DONE = 'not done'
 const STATUS_NA = 'n/a'
+const BASE_WIDTHS = [28, 40, 16, 36]
+const CUSTOM_COLUMN_WIDTH = 22
+const LOG_COLUMN_WIDTH = 52
 
-export function downloadChecklistTemplate() {
+export const CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
+export const CHECKLIST_EXPORT_COLS = buildChecklistColumnWidths([])
+
+export function downloadChecklistTemplate(customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS])
-  worksheet['!cols'] = [{ wch: 28 }, { wch: 40 }, { wch: 14 }, { wch: 36 }]
+  const normalizedCustomColumns = normalizeChecklistCustomColumns(customColumns)
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    [...TEMPLATE_HEADERS, ...normalizedCustomColumns.map((column) => column.label)],
+  ])
+  worksheet['!cols'] = buildChecklistColumnWidths(normalizedCustomColumns, false)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Checklist Template')
   XLSX.writeFile(workbook, 'site-checklist-template.xlsx')
 }
 
-export function downloadChecklistExport(checklists, siteName = 'site') {
+export function downloadChecklistExport(checklists, siteName = 'site', customColumns = []) {
   const workbook = XLSX.utils.book_new()
-  const rows = buildChecklistExportRows(checklists || [])
+  const normalizedCustomColumns = normalizeChecklistCustomColumns(customColumns)
+  const rows = buildChecklistExportRows(checklists || [], normalizedCustomColumns)
   const worksheet = XLSX.utils.aoa_to_sheet(rows)
 
-  worksheet['!cols'] = CHECKLIST_EXPORT_COLS
+  worksheet['!cols'] = buildChecklistColumnWidths(normalizedCustomColumns, true)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Checklist Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-checklist-export.xlsx`)
 }
 
-export function buildChecklistExportRows(checklists) {
-  return [CHECKLIST_EXPORT_HEADERS, ...buildChecklistRows(checklists || [])]
+export function buildChecklistExportRows(checklists, customColumns = []) {
+  const normalizedCustomColumns = normalizeChecklistCustomColumns(customColumns)
+  const exportHeaders = [
+    ...TEMPLATE_HEADERS,
+    ...normalizedCustomColumns.map((column) => column.label),
+    'Log',
+  ]
+  return [exportHeaders, ...buildChecklistRows(checklists || [], normalizedCustomColumns)]
 }
 
 export async function parseChecklistSpreadsheet(file) {
@@ -51,15 +71,30 @@ export async function parseChecklistSpreadsheet(file) {
     throw new Error('The worksheet is empty.')
   }
 
-  const headerRow = rows[0].map((value) => normalizeHeader(value))
-  const mainTaskIndex = headerRow.findIndex((value) => value === 'maintask')
-  const subTaskIndex = headerRow.findIndex((value) => value === 'subtask')
-  const statusIndex = headerRow.findIndex((value) => value === 'status')
-  const commentIndex = headerRow.findIndex((value) => value === 'comment')
+  const headerCells = rows[0].map((value) => String(value || '').trim())
+  const normalizedHeaders = headerCells.map((value) => normalizeHeader(value))
+  const mainTaskIndex = normalizedHeaders.findIndex((value) => value === 'maintask')
+  const subTaskIndex = normalizedHeaders.findIndex((value) => value === 'subtask')
+  const statusIndex = normalizedHeaders.findIndex((value) => value === 'status')
+  const commentIndex = normalizedHeaders.findIndex((value) => value === 'comment')
+  const logIndex = normalizedHeaders.findIndex((value) => value === 'log')
 
   if (mainTaskIndex === -1 || subTaskIndex === -1) {
     throw new Error('The file must contain "Main task" and "Sub task" columns.')
   }
+
+  const customColumns = headerCells
+    .map((header, index) => ({ header, normalized: normalizedHeaders[index], index }))
+    .filter((column) =>
+      column.header &&
+      !['maintask', 'subtask', 'status', 'comment', 'log'].includes(column.normalized)
+    )
+    .map((column) => ({
+      id: createImportColumnId(column.normalized || column.header),
+      label: column.header,
+      type: CHECKLIST_COLUMN_TYPE.TEXT,
+      sourceIndex: column.index,
+    }))
 
   const groups = []
   const groupMap = new Map()
@@ -93,10 +128,18 @@ export async function parseChecklistSpreadsheet(file) {
     }
 
     if (subTask) {
+      const fieldValues = Object.fromEntries(
+        customColumns.map((column) => [
+          column.id,
+          normalizeChecklistFieldValue(row[column.sourceIndex], CHECKLIST_COLUMN_TYPE.TEXT),
+        ])
+      )
+
       groupMap.get(key).items.push({
         title: subTask,
         status: normalizeImportedStatus(rawStatus),
         comment: rawComment,
+        fieldValues,
       })
     }
   })
@@ -105,7 +148,16 @@ export async function parseChecklistSpreadsheet(file) {
     throw new Error('No checklist rows were found in the file.')
   }
 
-  return groups
+  return {
+    groups,
+    customColumns: customColumns.map(({ sourceIndex, ...column }) => column),
+  }
+}
+
+function buildChecklistColumnWidths(customColumns, includeLog = true) {
+  const widths = [...BASE_WIDTHS, ...customColumns.map(() => CUSTOM_COLUMN_WIDTH)]
+  if (includeLog) widths.push(LOG_COLUMN_WIDTH)
+  return widths.map((wch) => ({ wch }))
 }
 
 function normalizeHeader(value) {
@@ -119,15 +171,22 @@ function toCellText(value) {
 }
 
 function normalizeKey(value) {
-  return value.trim().toLowerCase()
+  return String(value || '').trim().toLowerCase()
 }
 
-function buildChecklistRows(checklists) {
+function buildChecklistRows(checklists, customColumns) {
   return checklists.flatMap((checklist) => {
     const items = checklist.items || []
 
     if (!items.length) {
-      return [[checklist.title || '', '', '', '', '']]
+      return [[
+        checklist.title || '',
+        '',
+        '',
+        '',
+        ...customColumns.map(() => ''),
+        '',
+      ]]
     }
 
     return items.map((item) => [
@@ -135,6 +194,7 @@ function buildChecklistRows(checklists) {
       item.title || '',
       formatExportStatus(item.status),
       item.comment || '',
+      ...customColumns.map((column) => item.fieldValues?.[column.id] || ''),
       formatStatusHistory(item.statusHistory),
     ])
   })
@@ -198,4 +258,9 @@ function formatHistoryDate(value) {
   const minutes = String(date.getMinutes()).padStart(2, '0')
 
   return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function createImportColumnId(value) {
+  const slug = normalizeHeader(value) || 'column'
+  return `import-${slug}`
 }

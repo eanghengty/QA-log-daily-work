@@ -27,6 +27,7 @@ watch(
     form.value = {
       id: value.id || '',
       name: value.name || '',
+      hopReviewer: value.hopReviewer || 'NA',
       scope: value.scope || '',
       comment: value.comment || '',
       url: value.url || '',
@@ -36,17 +37,18 @@ watch(
 )
 
 async function save() {
-  if (!form.value.id || !form.value.name) {
-    alert('Site ID and site name are required')
+  if (!form.value.id.trim() || !form.value.name.trim() || !form.value.hopReviewer.trim()) {
+    alert('Site ID, site name, and HOP reviewer are required')
     return
   }
 
   if (isEdit.value) {
     await updateSite(siteId.value, {
-      name: form.value.name,
-      scope: form.value.scope,
-      comment: form.value.comment,
-      url: form.value.url,
+      name: form.value.name.trim(),
+      hopReviewer: form.value.hopReviewer.trim(),
+      scope: form.value.scope.trim(),
+      comment: form.value.comment.trim(),
+      url: form.value.url.trim(),
     })
     await logAction('Site updated', `${siteId.value} — ${form.value.name}`)
     router.push(`/site/${siteId.value}`)
@@ -56,6 +58,7 @@ async function save() {
   await addSite({
     id: form.value.id.trim(),
     name: form.value.name.trim(),
+    hopReviewer: form.value.hopReviewer.trim(),
     scope: form.value.scope.trim(),
     comment: form.value.comment.trim(),
     url: form.value.url.trim(),
@@ -85,6 +88,7 @@ function emptyForm() {
   return {
     id: '',
     name: '',
+    hopReviewer: '',
     scope: '',
     comment: '',
     url: '',
@@ -117,6 +121,11 @@ function emptyForm() {
       </div>
 
       <div class="col gap-2">
+        <div class="label">HOP reviewer</div>
+        <input v-model="form.hopReviewer" class="field" />
+      </div>
+
+      <div class="col gap-2">
         <div class="label">Scope</div>
         <select v-model="form.scope" class="field" style="cursor: pointer">
           <option value="">— None —</option>
@@ -141,7 +150,7 @@ function emptyForm() {
 
       <div v-if="isEdit" class="box-dash p-3 col gap-2" style="margin-top: 12px">
         <div class="label">Remove site</div>
-        <div class="small">Deletes this site and its progress updates, blockers, confirmations, checklists, cable matrix rows, antenna checklist rows, DCPL checklist rows, cable checklist rows, and email settings.</div>
+        <div class="small">Deletes this site and its progress updates, blockers, confirmations, checklists, cable matrix rows, antenna checklist rows, DCPL checklist rows, cable checklist rows, document references, and email settings.</div>
         <button
           type="button"
           class="btn"

@@ -17,6 +17,7 @@ export function useDcplChecklist(siteId) {
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
+      fieldValues: normalizeFieldValues(row.fieldValues),
       changeHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -38,6 +39,16 @@ export function useDcplChecklist(siteId) {
       if (previousValue === nextValue) continue
 
       nextHistory.push(createFieldHistoryEntry(field, previousValue, nextValue))
+    }
+
+    if ('fieldValues' in normalizedUpdates) {
+      const previousFieldValues = row.fieldValues || {}
+      for (const [field, nextValueRaw] of Object.entries(normalizedUpdates.fieldValues || {})) {
+        const previousValue = String(previousFieldValues[field] || '').trim()
+        const nextValue = String(nextValueRaw || '').trim()
+        if (previousValue === nextValue) continue
+        nextHistory.push(createFieldHistoryEntry(field, previousValue, nextValue))
+      }
     }
 
     return await db.dcplChecklists.update(Number(id), {
@@ -87,6 +98,10 @@ export function useDcplChecklist(siteId) {
           const nextValues = {
             ...existing,
             ...normalizedRow,
+            fieldValues: {
+              ...(existing.fieldValues || {}),
+              ...(normalizedRow.fieldValues || {}),
+            },
             updatedAt: new Date().toISOString(),
           }
           await db.dcplChecklists.put(nextValues)
@@ -114,6 +129,26 @@ export function useDcplChecklist(siteId) {
     return summary
   }
 
+  async function removeCustomColumnValues(columnId) {
+    if (!columnId) return
+
+    await db.transaction('rw', db.dcplChecklists, async () => {
+      const siteRows = await db.dcplChecklists.where('siteId').equals(siteId).toArray()
+
+      for (const row of siteRows) {
+        if (!row.fieldValues || !(columnId in row.fieldValues)) continue
+
+        const fieldValues = { ...row.fieldValues }
+        delete fieldValues[columnId]
+
+        await db.dcplChecklists.update(Number(row.id), {
+          fieldValues,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    })
+  }
+
   return {
     rows,
     summary,
@@ -122,6 +157,7 @@ export function useDcplChecklist(siteId) {
     deleteRow,
     reorderRows,
     importRows,
+    removeCustomColumnValues,
   }
 }
 
@@ -155,6 +191,7 @@ function normalizeRowValues(row) {
     serialNumber: String(row.serialNumber || '').trim(),
     dbValue: String(row.dbValue || '').trim(),
     comment: String(row.comment || '').trim(),
+    fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
 
@@ -169,8 +206,15 @@ function normalizeRowUpdates(updates) {
   if ('serialNumber' in next) next.serialNumber = String(next.serialNumber || '').trim()
   if ('dbValue' in next) next.dbValue = String(next.dbValue || '').trim()
   if ('comment' in next) next.comment = String(next.comment || '').trim()
+  if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+function normalizeFieldValues(value) {
+  return Object.fromEntries(
+    Object.entries(value || {}).map(([key, item]) => [String(key), String(item ?? '')])
+  )
 }
 
 function hasAnyValue(row) {

@@ -1,6 +1,10 @@
 import { computed } from 'vue'
 import { db } from '../db/index.js'
 import { useLiveQuery } from './useLiveQuery.js'
+import {
+  normalizeChecklistCustomColumns,
+  normalizeChecklistFieldValue,
+} from '../lib/checklistColumns.js'
 
 export const CHECKLIST_STATUS = {
   TODO: 'todo',
@@ -52,7 +56,7 @@ export function useChecklists(siteId) {
     return await updateChecklist(id, { title: title.trim() })
   }
 
-  async function addSubItem(checklistId, title) {
+  async function addSubItem(checklistId, title, customColumns = []) {
     const checklist = await db.checklists.get(Number(checklistId))
     if (!checklist) return
 
@@ -64,6 +68,7 @@ export function useChecklists(siteId) {
         status: CHECKLIST_STATUS.TODO,
         comment: '',
         statusHistory: [],
+        fieldValues: createEmptyFieldValues(customColumns),
       },
     ]
 
@@ -115,6 +120,25 @@ export function useChecklists(siteId) {
     })
   }
 
+  async function setSubItemFieldValue(checklistId, itemId, column, value) {
+    const checklist = await db.checklists.get(Number(checklistId))
+    if (!checklist) return
+
+    const items = (checklist.items || []).map((item) => {
+      if (item.id !== itemId) return item
+
+      return {
+        ...item,
+        fieldValues: {
+          ...(item.fieldValues || {}),
+          [column.id]: normalizeChecklistFieldValue(value, column.type),
+        },
+      }
+    })
+
+    return await updateChecklist(checklist.id, { items })
+  }
+
   async function deleteSubItem(checklistId, itemId) {
     const checklist = await db.checklists.get(Number(checklistId))
     if (!checklist) return
@@ -123,7 +147,7 @@ export function useChecklists(siteId) {
     return await updateChecklist(checklist.id, { items })
   }
 
-  async function importChecklistGroups(groups) {
+  async function importChecklistGroups(groups, customColumns = []) {
     const summary = {
       processedChecklists: 0,
       addedChecklists: 0,
@@ -140,6 +164,7 @@ export function useChecklists(siteId) {
       let nextOrder =
         siteChecklists.reduce((max, checklist) => Math.max(max, Number(checklist.order) || 0), 0) +
         1
+      const normalizedCustomColumns = normalizeChecklistCustomColumns(customColumns)
 
       for (const group of groups) {
         const title = group.title?.trim()
@@ -159,6 +184,7 @@ export function useChecklists(siteId) {
               status: normalizeStatus(item.status),
               comment: String(item.comment || '').trim(),
               statusHistory: [],
+              fieldValues: normalizeItemFieldValues(item.fieldValues, normalizedCustomColumns),
             }))
 
           summary.skippedSubItems += normalizedItems.length - freshItems.length
@@ -188,6 +214,7 @@ export function useChecklists(siteId) {
             status: normalizeStatus(item.status),
             comment: String(item.comment || '').trim(),
             statusHistory: [],
+            fieldValues: normalizeItemFieldValues(item.fieldValues, normalizedCustomColumns),
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -242,9 +269,34 @@ export function useChecklists(siteId) {
         status: item.status || CHECKLIST_STATUS.TODO,
         comment: item.comment || '',
         statusHistory: [],
+        fieldValues: { ...(item.fieldValues || {}) },
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+    })
+  }
+
+  async function removeCustomColumnValues(columnId) {
+    if (!columnId) return
+
+    await db.transaction('rw', db.checklists, async () => {
+      const siteChecklists = await db.checklists.where('siteId').equals(siteId).toArray()
+
+      for (const checklist of siteChecklists) {
+        const items = (checklist.items || []).map((item) => {
+          if (!item.fieldValues || !(columnId in item.fieldValues)) return item
+
+          const nextFieldValues = { ...item.fieldValues }
+          delete nextFieldValues[columnId]
+
+          return {
+            ...item,
+            fieldValues: nextFieldValues,
+          }
+        })
+
+        await updateChecklist(checklist.id, { items })
+      }
     })
   }
 
@@ -259,10 +311,12 @@ export function useChecklists(siteId) {
     renameSubItem,
     setSubItemStatus,
     setSubItemComment,
+    setSubItemFieldValue,
     deleteSubItem,
     importChecklistGroups,
     reorderChecklists,
     duplicateChecklist,
+    removeCustomColumnValues,
   }
 }
 
@@ -343,6 +397,7 @@ function uniqueItems(items) {
       title,
       status: normalizeStatus(item?.status),
       comment: String(item?.comment || '').trim(),
+      fieldValues: { ...(item?.fieldValues || {}) },
     })
   }
 
@@ -363,4 +418,19 @@ async function assertChecklistTitleUnique(siteId, title, excludeId = null) {
   if (duplicate) {
     throw new Error('Main checklist name already exists. Please use a different name.')
   }
+}
+
+function createEmptyFieldValues(columns) {
+  return Object.fromEntries(
+    normalizeChecklistCustomColumns(columns).map((column) => [column.id, ''])
+  )
+}
+
+function normalizeItemFieldValues(values, customColumns) {
+  const entries = normalizeChecklistCustomColumns(customColumns).map((column) => [
+    column.id,
+    normalizeChecklistFieldValue(values?.[column.id] || '', column.type),
+  ])
+
+  return Object.fromEntries(entries)
 }
