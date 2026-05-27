@@ -1,11 +1,16 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import {
+  reportNotesHtmlFromText,
+  reportNotesPlainTextFromHtml,
+  sanitizeReportNotesHtml,
+} from '../lib/reportNotes.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
@@ -27,6 +32,7 @@ const { logAction } = useActivityLog()
 
 const today = new Date().toISOString().split('T')[0]
 const form = ref(emptyForm())
+const notesEditor = ref(null)
 
 const pageTitle = computed(() => (isEdit.value ? 'Edit progress update' : 'New progress update'))
 const pageSubtitle = computed(() => `${formatSiteNameWithHopReviewer(site.value, siteId)} - ${form.value.date || today}`)
@@ -39,6 +45,7 @@ watch(
       date: value.date || today,
       time: value.time || currentTime(),
       notes: value.notes || '',
+      notesRich: sanitizeReportNotesHtml(value.notesRich || reportNotesHtmlFromText(value.notes || '')),
       linkedIssueIds: [...(value.linkedIssueIds || [])],
       linkedConfirmIds: [...(value.linkedConfirmIds || [])],
       attachmentIds: [...(value.attachmentIds || [])],
@@ -47,12 +54,28 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => form.value.notesRich,
+  async (value) => {
+    await nextTick()
+    if (!notesEditor.value) return
+    const sanitized = sanitizeReportNotesHtml(value)
+    if (notesEditor.value.innerHTML !== sanitized) {
+      notesEditor.value.innerHTML = sanitized
+    }
+  },
+  { immediate: true }
+)
+
 async function save(options = {}) {
+  syncNotesFromEditor()
+
   const payload = {
     siteId,
     date: form.value.date || today,
     time: form.value.time || currentTime(),
     notes: form.value.notes,
+    notesRich: form.value.notesRich,
     linkedIssueIds: [...form.value.linkedIssueIds],
     linkedConfirmIds: [...form.value.linkedConfirmIds],
     attachmentIds: [...form.value.attachmentIds],
@@ -111,6 +134,7 @@ function emptyForm() {
     date: today,
     time: currentTime(),
     notes: '',
+    notesRich: reportNotesHtmlFromText(''),
     linkedIssueIds: [],
     linkedConfirmIds: [],
     attachmentIds: [],
@@ -123,6 +147,91 @@ function currentTime() {
     minute: '2-digit',
     hour12: false,
   })
+}
+
+function syncNotesFromEditor() {
+  if (!notesEditor.value) return
+  const sanitized = sanitizeReportNotesHtml(notesEditor.value.innerHTML)
+  form.value.notesRich = sanitized
+  form.value.notes = reportNotesPlainTextFromHtml(sanitized)
+  if (notesEditor.value.innerHTML !== sanitized) {
+    notesEditor.value.innerHTML = sanitized
+  }
+}
+
+function onNotesInput() {
+  syncNotesFromEditor()
+}
+
+function onNotesPaste(event) {
+  event.preventDefault()
+  const text = event.clipboardData?.getData('text/plain') || ''
+  document.execCommand('insertText', false, text)
+  syncNotesFromEditor()
+}
+
+function applyHighlight() {
+  wrapSelectionWithHighlight()
+  syncNotesFromEditor()
+}
+
+function clearHighlight() {
+  if (!notesEditor.value) return
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+
+  const range = selection.getRangeAt(0)
+  if (!notesEditor.value.contains(range.commonAncestorContainer)) return
+
+  const marks = Array.from(notesEditor.value.querySelectorAll('mark.report-note-highlight'))
+  const closestMark = range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer.closest?.('mark.report-note-highlight')
+    : range.startContainer.parentElement?.closest?.('mark.report-note-highlight')
+
+  if (range.collapsed && closestMark) {
+    unwrapHighlight(closestMark)
+    syncNotesFromEditor()
+    return
+  }
+
+  marks
+    .filter((mark) => range.intersectsNode(mark))
+    .forEach(unwrapHighlight)
+
+  syncNotesFromEditor()
+}
+
+function wrapSelectionWithHighlight() {
+  if (!notesEditor.value) return
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+
+  const range = selection.getRangeAt(0)
+  if (range.collapsed || !notesEditor.value.contains(range.commonAncestorContainer)) return
+
+  const fragment = range.extractContents()
+  const mark = document.createElement('mark')
+  mark.className = 'report-note-highlight'
+  mark.append(fragment)
+  range.insertNode(mark)
+
+  selection.removeAllRanges()
+  const nextRange = document.createRange()
+  nextRange.selectNodeContents(mark)
+  selection.addRange(nextRange)
+}
+
+function unwrapHighlight(mark) {
+  const parent = mark.parentNode
+  if (!parent) return
+
+  while (mark.firstChild) {
+    parent.insertBefore(mark.firstChild, mark)
+  }
+
+  parent.removeChild(mark)
 }
 </script>
 
@@ -158,11 +267,27 @@ function currentTime() {
             <div class="label">Progress notes - what happened on site?</div>
             <div class="tiny">work completed, delays, next steps</div>
           </div>
-          <textarea
-            v-model="form.notes"
-            class="field grow"
-            style="font-family: 'Patrick Hand', cursive; font-size: 16px; padding: 16px; min-height: 240px; resize: none"
-          />
+          <div class="box p-3 col gap-3 grow">
+            <div class="row gap-2" style="flex-wrap: wrap">
+              <button type="button" class="chip" @click="applyHighlight">
+                <MaterialIcon name="ink_highlighter" :size="14" />
+                Highlight
+              </button>
+              <button type="button" class="chip" @click="clearHighlight">
+                <MaterialIcon name="format_color_reset" :size="14" />
+                Unhighlight
+              </button>
+              <div class="tiny" style="color: var(--ink-3)">Highlight stays in the update editor and is removed from the generated email.</div>
+            </div>
+            <div
+              ref="notesEditor"
+              class="field grow report-notes-editor"
+              contenteditable="true"
+              style="font-family: 'Patrick Hand', cursive; font-size: 16px; padding: 16px; min-height: 240px; overflow: auto"
+              @input="onNotesInput"
+              @paste="onNotesPaste"
+            />
+          </div>
         </div>
 
         <div class="row gap-3">
@@ -234,3 +359,18 @@ function currentTime() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.report-notes-editor {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  outline: none;
+}
+
+.report-notes-editor :deep(mark.report-note-highlight) {
+  background: #fff1a8;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+</style>
