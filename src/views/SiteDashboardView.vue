@@ -11,6 +11,7 @@ import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useDcplChecklist } from '../composables/useDcplChecklist.js'
 import { useCableChecklist } from '../composables/useCableChecklist.js'
 import { exportSite, importSite } from '../lib/backup.js'
+import { reportNotesHtmlFromText, reportNotesPlainTextFromHtml, sanitizeReportNotesHtml } from '../lib/reportNotes.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import { shouldShowAntennaChecklist, shouldShowDcplChecklist } from '../lib/siteScope.js'
 import { exportSiteWorkbook } from '../lib/siteWorkbookSpreadsheet.js'
@@ -272,6 +273,20 @@ function formatCountLength(value) {
   return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 2) : '0'
 }
 
+function reportNotesPreviewHtml(report) {
+  const html = report?.notesRich || reportNotesHtmlFromText(report?.notes || '')
+  return sanitizeReportNotesHtml(html)
+}
+
+function reportNotesPreviewText(report) {
+  return reportNotesPlainTextFromHtml(report?.notesRich || reportNotesHtmlFromText(report?.notes || ''))
+}
+
+function reportHasLongNotes(report) {
+  const notes = reportNotesPreviewText(report)
+  return notes.split('\n').length > 3 || notes.length > 160
+}
+
 function summarizeImportPayload(data) {
   const summary = data?.summary || {}
   const reports = summary.reports ?? data?.reports?.length ?? 0
@@ -465,12 +480,13 @@ function summarizeImportPayload(data) {
             <div class="mono small" style="width: 90px">{{ report.date }}</div>
             <div class="col grow gap-2">
               <div
-                style="font-size: 13px; white-space: pre-wrap; cursor: pointer"
+                class="report-history-notes"
                 :style="expandedReports.has(report.id) ? {} : { overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }"
                 @click="toggleReport(report.id)"
-              >{{ report.notes || 'No notes captured.' }}</div>
+                v-html="reportNotesPreviewHtml(report)"
+              />
               <button
-                v-if="report.notes && report.notes.split('\n').length > 3 || (report.notes && report.notes.length > 160)"
+                v-if="reportHasLongNotes(report)"
                 type="button"
                 class="chip"
                 style="align-self: flex-start; font-size: 11px"
@@ -618,5 +634,22 @@ function summarizeImportPayload(data) {
 <style scoped>
 .scroll {
   overflow: auto;
+}
+
+.report-history-notes {
+  font-size: 13px;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+
+.report-history-notes:deep(div) {
+  margin: 0;
+}
+
+.report-history-notes:deep(mark.report-note-highlight) {
+  background: #fff1a8;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
 }
 </style>

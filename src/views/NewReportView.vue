@@ -283,7 +283,8 @@ function unwrapHighlight(mark) {
               ref="notesEditor"
               class="field grow report-notes-editor"
               contenteditable="true"
-              style="font-family: 'Patrick Hand', cursive; font-size: 16px; padding: 16px; min-height: 240px; overflow: auto"
+              spellcheck="false"
+              style="font-size: 13px; padding: 16px; min-height: 240px; overflow: auto"
               @input="onNotesInput"
               @paste="onNotesPaste"
             />
