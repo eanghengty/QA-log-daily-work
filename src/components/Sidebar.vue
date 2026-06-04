@@ -8,6 +8,7 @@ import ScopeModal from './ScopeModal.vue'
 import ActivityLogModal from './ActivityLogModal.vue'
 import ConfirmSourceModal from './ConfirmSourceModal.vue'
 import { useScopes } from '../composables/useScopes.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 
 const { sites } = useSites()
 const { scopes } = useScopes()
@@ -40,7 +41,7 @@ const groupedSites = computed(() => {
 })
 
 function goToSite(id) {
-  router.push(`/site/${id}`)
+  router.push(buildSitePath(id))
 }
 
 function toggleScope(key) {

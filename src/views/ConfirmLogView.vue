@@ -6,6 +6,7 @@ import { useConfirms } from '../composables/useConfirms.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { useConfirmSources } from '../composables/useConfirmSources.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import AttachmentViewer from '../components/AttachmentViewer.vue'
@@ -76,7 +77,7 @@ async function save() {
       await logAction('Confirmation created', `${payload.title || 'Untitled'} — ${siteId}`)
     }
 
-    router.push(`/site/${siteId}`)
+    router.push(buildSitePath(siteId))
   } catch {
     saveError.value = 'Failed to save. Please try again.'
   } finally {
@@ -85,7 +86,7 @@ async function save() {
 }
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function emptyForm() {

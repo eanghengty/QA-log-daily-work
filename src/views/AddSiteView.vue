@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
 import { useScopes } from '../composables/useScopes.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { db } from '../db/index.js'
+import { buildSitePath, getSiteIdError } from '../lib/siteRouting.js'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
 const route = useRoute()
@@ -17,6 +19,7 @@ const { data: site } = useSiteById(siteId.value || '')
 
 const form = ref(emptyForm())
 const confirmDelete = ref(false)
+const idError = ref('')
 const pageTitle = computed(() => (isEdit.value ? 'Site settings' : 'Add a site'))
 const primaryLabel = computed(() => (isEdit.value ? 'Save changes' : 'Add site'))
 
@@ -42,6 +45,22 @@ async function save() {
     return
   }
 
+  if (!isEdit.value) {
+    const nextSiteId = form.value.id.trim()
+    const invalidIdMessage = getSiteIdError(nextSiteId)
+
+    if (invalidIdMessage) {
+      idError.value = invalidIdMessage
+      return
+    }
+
+    const existing = await db.sites.get(nextSiteId)
+    if (existing) {
+      idError.value = 'Site ID already exists. Try a different one.'
+      return
+    }
+  }
+
   if (isEdit.value) {
     await updateSite(siteId.value, {
       name: form.value.name.trim(),
@@ -51,7 +70,7 @@ async function save() {
       url: form.value.url.trim(),
     })
     await logAction('Site updated', `${siteId.value} — ${form.value.name}`)
-    router.push(`/site/${siteId.value}`)
+    router.push(buildSitePath(siteId.value))
     return
   }
 
@@ -81,7 +100,26 @@ async function removeSite() {
 }
 
 function goBack() {
-  router.push(isEdit.value ? `/site/${siteId.value}` : '/')
+  router.push(isEdit.value ? buildSitePath(siteId.value) : '/')
+}
+
+async function checkIdDuplicate() {
+  if (isEdit.value) return
+
+  const nextSiteId = form.value.id.trim()
+  if (!nextSiteId) {
+    idError.value = ''
+    return
+  }
+  const invalidIdMessage = getSiteIdError(nextSiteId)
+
+  if (invalidIdMessage) {
+    idError.value = invalidIdMessage
+    return
+  }
+
+  const existing = await db.sites.get(nextSiteId)
+  idError.value = existing ? 'Site ID already exists. Try a different one.' : ''
 }
 
 function emptyForm() {
@@ -112,7 +150,15 @@ function emptyForm() {
     <div class="col gap-4 p-5">
       <div class="col gap-2">
         <div class="label">Site ID</div>
-        <input v-model="form.id" class="field" :disabled="isEdit" />
+        <input
+          v-model="form.id"
+          class="field"
+          :disabled="isEdit"
+          @input="idError = ''"
+          @blur="checkIdDuplicate"
+        />
+        <div v-if="!isEdit" class="tiny" style="color: var(--ink-3)">Use letters, numbers, and hyphens only.</div>
+        <div v-if="idError" class="tiny" style="color: var(--issue)">{{ idError }}</div>
       </div>
 
       <div class="col gap-2">

@@ -9,6 +9,7 @@ import {
 import { useSites } from '../composables/useSites.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { buildPendingSummaryProgressText } from '../lib/pendingSummaryExport.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -68,7 +69,7 @@ const subtitle = computed(() => {
 })
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function showStatus(message, tone = 'confirm') {
@@ -115,7 +116,7 @@ async function handleExportToNewUpdate() {
   try {
     const exportText = buildPendingSummaryProgressText(sections.value)
     await router.push({
-      path: `/site/${siteId}/report/new`,
+      path: buildSitePath(siteId, '/report/new'),
       state: {
         reportPrefillNotes: exportText,
       },

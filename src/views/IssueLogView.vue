@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
 import AttachmentViewer from '../components/AttachmentViewer.vue'
@@ -66,7 +67,7 @@ async function save(options = {}) {
     if (isEdit.value) {
       await updateIssue(Number(issueId.value), payload)
       await logAction('Blocker updated', `${payload.title || 'Untitled'} — ${siteId}`)
-      router.push(`/site/${siteId}`)
+      router.push(buildSitePath(siteId))
       return
     }
 
@@ -78,7 +79,7 @@ async function save(options = {}) {
       return
     }
 
-    router.push(`/site/${siteId}`)
+    router.push(buildSitePath(siteId))
   } catch {
     saveError.value = 'Failed to save. Please try again.'
   } finally {
@@ -87,7 +88,7 @@ async function save(options = {}) {
 }
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function emptyForm() {

@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { db } from '../db/index.js'
+import { assertValidSiteId } from '../lib/siteRouting.js'
 import { useLiveQuery } from './useLiveQuery.js'
 
 export function useSites() {
@@ -19,6 +20,8 @@ export function useSites() {
   })
 
   async function addSite(site) {
+    assertValidSiteId(site.id)
+
     return await db.sites.add({
       ...site,
       createdAt: new Date().toISOString(),

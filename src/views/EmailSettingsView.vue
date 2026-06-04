@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useEmailSettings } from '../composables/useEmailSettings.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
@@ -58,7 +59,7 @@ async function save() {
 }
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 </script>
 

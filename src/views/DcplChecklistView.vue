@@ -6,6 +6,7 @@ import { useDcplChecklist } from '../composables/useDcplChecklist.js'
 import { useDcplChecklistLayout } from '../composables/useDcplChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { shouldShowDcplChecklist } from '../lib/siteScope.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import {
   downloadDcplChecklistExport,
   downloadDcplChecklistTemplate,
@@ -57,7 +58,7 @@ watch(
   () => site.value?.scope,
   (scope) => {
     if (!shouldShowDcplChecklist(scope)) {
-      router.replace(`/site/${siteId}`)
+      router.replace(buildSitePath(siteId))
     }
   },
   { immediate: true }
@@ -133,7 +134,7 @@ function showStatus(message, tone = 'confirm') {
 }
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function openImportPicker() {

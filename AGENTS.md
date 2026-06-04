@@ -55,7 +55,8 @@ or `npm.cmd run dev` when that happens.
 - `documentReferences` stores one titled document link per site for quick access from the site
   dashboard top bar.
 - `pendingSummaries` stores one generated pending-summary board per site, including pasted source
-  text, ordered main lists, ordered sub lists, pending items, and per-item done / not-done action dates.
+  text, ordered main lists, ordered sub lists, pending items, per-item `todo` / `partial` /
+  `done` status, optional partial-done comments, optional under-checking flags, and item action dates.
 
 ### Reactive Store (`src/composables/`)
 
@@ -79,7 +80,8 @@ or `npm.cmd run dev` when that happens.
   row-level change logging.
 - `usePendingSummary.js` owns per-site pending summary generation from pasted text, nested
   main-list / sub-list / item persistence, manual add and delete actions for all three layers,
-  summary counts, and per-item done / not-done action history.
+  summary counts, partial-done comment capture, under-checking flags, export-to-progress-update
+  formatting, and per-item status action history.
 - Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
 - `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
@@ -128,8 +130,9 @@ or `npm.cmd run dev` when that happens.
 
 ### Email (`src/lib/email.js`)
 
-- `buildEmailSubject()` and `buildEmailBody()` compose site progress email content from the
-  update, linked blockers, linked approvals, and settings toggles.
+- `EmailDraftView.vue` builds the default draft subject as `[current site] Pending summary update - date`
+  when no saved subject prefix exists, and `buildEmailBody()` composes the site progress email
+  content from the update, linked blockers, linked approvals, and settings toggles.
 - `generateEml()` builds an RFC-822 `multipart/mixed` message with `X-Unsent: 1` so Outlook
   opens the `.eml` as an editable, sendable draft.
 - `downloadEml()` and `copyToClipboard()` are the output helpers.
@@ -226,9 +229,14 @@ or `npm.cmd run dev` when that happens.
   lists, nested numbered lines such as `1.1` as sub lists, and bulleted lines as pending items.
 - **Pending summary UX**: the top summary cards can be hidden / shown, the generate card can
   collapse, and the board must support manual add plus delete actions for main lists, sub lists,
-  and pending items.
-- **Pending summary history**: ticking and unticking a pending item must record the action date in
-  the item history so the user can review when it changed.
+  and pending items, an under-checking toggle, and a partial-done flow with required comment modal.
+- **Pending summary counts**: partial-done items still count under not done in main / sub list
+  summaries until they are fully marked done.
+- **Pending summary export**: export to the progress-update form should keep numbered indentation,
+  include partial-done comments inline, place not-done / partial items in the first block, and
+  place done items in the bottom `Pending clear today:` block.
+- **Pending summary history**: todo / partial / done changes must record action dates in the item
+  history so the user can review when it changed, including saved partial-done comments.
 - **Approvals**: saving an approval requires at least one attachment.
 - **IDs**: `sites` use slug strings; `reports`, `issues`, `confirms`, and `attachments`
   auto-increment.
@@ -280,7 +288,8 @@ Then check the app in the browser:
    saved links on reload, and includes them in site import/export.
 6. New progress update -> save -> appears in history -> reload -> still there.
 7. New progress update -> save & generate email -> opens the update email draft.
-8. Email draft toggles update the body; copy and `.eml` download buttons work.
+8. Email draft defaults the subject to `[current site] Pending summary update - date`, toggles
+   update the body, and copy / `.eml` download buttons work.
 9. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
 10. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
 11. Site settings can update site fields and delete the site with the two-click confirm action.
@@ -327,8 +336,15 @@ Then check the app in the browser:
     items, and those changes still show after reload.
 35. Ticking and unticking a pending summary item updates the done / not-done counts and records
     dated history entries in the item history modal.
-36. Site dashboard export includes checklist custom columns, document references, pending summary
+36. Pending summary supports `Partial done`, requires a comment before saving that state, keeps
+    partial items under not-done counts, and shows the saved partial comment on reload.
+37. Pending summary `Flag checking` / `Under checking` toggles the visual marker on and off
+    without changing done / not-done counts, and that state survives reload.
+38. Pending summary export to new progress update keeps numbered indentation, sends not-done plus
+    partial-done items in the first block, sends done items in the bottom `Pending clear today:`
+    block, and includes partial comments inline in the exported text.
+39. Site dashboard export includes checklist custom columns, document references, pending summary
     data, and the newer antenna, DCPL, and cable checklist data, and site import confirmation
     clearly describes the incoming counts before replacing current site data.
-37. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+40. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

@@ -6,6 +6,7 @@ import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useAntennaChecklistLayout } from '../composables/useAntennaChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { shouldShowAntennaChecklist } from '../lib/siteScope.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import {
   downloadAntennaChecklistExport,
   downloadAntennaChecklistTemplate,
@@ -57,7 +58,7 @@ watch(
   () => site.value?.scope,
   (scope) => {
     if (!shouldShowAntennaChecklist(scope)) {
-      router.replace(`/site/${siteId}`)
+      router.replace(buildSitePath(siteId))
     }
   },
   { immediate: true }
@@ -140,7 +141,7 @@ function showStatus(message, tone = 'confirm') {
 }
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function openImportPicker() {

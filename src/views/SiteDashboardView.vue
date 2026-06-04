@@ -14,6 +14,7 @@ import { usePendingSummary } from '../composables/usePendingSummary.js'
 import { exportSite, importSite } from '../lib/backup.js'
 import { reportNotesHtmlFromText, reportNotesPlainTextFromHtml, sanitizeReportNotesHtml } from '../lib/reportNotes.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import { shouldShowAntennaChecklist, shouldShowDcplChecklist } from '../lib/siteScope.js'
 import { exportSiteWorkbook } from '../lib/siteWorkbookSpreadsheet.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
@@ -117,60 +118,60 @@ const topbarSubtitle = computed(() =>
 )
 
 function newReport() {
-  router.push(`/site/${siteId}/report/new`)
+  router.push(buildSitePath(siteId, '/report/new'))
 }
 
 function logIssue() {
-  router.push(`/site/${siteId}/issue/new`)
+  router.push(buildSitePath(siteId, '/issue/new'))
 }
 
 function saveConfirm() {
-  router.push(`/site/${siteId}/confirm/new`)
+  router.push(buildSitePath(siteId, '/confirm/new'))
 }
 
 function openSettings() {
-  router.push(`/site/${siteId}/settings`)
+  router.push(buildSitePath(siteId, '/settings'))
 }
 
 function openChecklist() {
-  router.push(`/site/${siteId}/checklist`)
+  router.push(buildSitePath(siteId, '/checklist'))
 }
 
 function openCableMatrix() {
-  router.push(`/site/${siteId}/cable-matrix`)
+  router.push(buildSitePath(siteId, '/cable-matrix'))
 }
 
 function openAntennaChecklist() {
-  router.push(`/site/${siteId}/antenna-checklist`)
+  router.push(buildSitePath(siteId, '/antenna-checklist'))
 }
 
 function openDcplChecklist() {
-  router.push(`/site/${siteId}/dcpl-checklist`)
+  router.push(buildSitePath(siteId, '/dcpl-checklist'))
 }
 
 function openCableChecklist() {
-  router.push(`/site/${siteId}/cable-checklist`)
+  router.push(buildSitePath(siteId, '/cable-checklist'))
 }
 
 function openPendingSummary() {
-  router.push(`/site/${siteId}/pending-summary`)
+  router.push(buildSitePath(siteId, '/pending-summary'))
 }
 
 function openLatestEmailDraft() {
   if (!latestReport.value) return
-  router.push(`/site/${siteId}/report/${latestReport.value.id}/email`)
+  router.push(buildSitePath(siteId, `/report/${latestReport.value.id}/email`))
 }
 
 function openReportEmail(reportId) {
-  router.push(`/site/${siteId}/report/${reportId}/email`)
+  router.push(buildSitePath(siteId, `/report/${reportId}/email`))
 }
 
 function editIssue(issueId) {
-  router.push(`/site/${siteId}/issue/${issueId}/edit`)
+  router.push(buildSitePath(siteId, `/issue/${issueId}/edit`))
 }
 
 function editConfirm(confirmId) {
-  router.push(`/site/${siteId}/confirm/${confirmId}/edit`)
+  router.push(buildSitePath(siteId, `/confirm/${confirmId}/edit`))
 }
 
 const pendingDelete = ref(null)

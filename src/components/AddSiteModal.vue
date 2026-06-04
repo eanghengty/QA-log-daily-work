@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useScopes } from '../composables/useScopes.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { db } from '../db/index.js'
+import { buildSitePath, getSiteIdError } from '../lib/siteRouting.js'
 import MaterialIcon from './MaterialIcon.vue'
 
 const props = defineProps({
@@ -32,7 +33,15 @@ function close() {
 
 async function checkIdDuplicate() {
   const id = form.value.id.trim()
-  if (!id) { idError.value = ''; return }
+  if (!id) {
+    idError.value = ''
+    return
+  }
+  const invalidIdMessage = getSiteIdError(id)
+  if (invalidIdMessage) {
+    idError.value = invalidIdMessage
+    return
+  }
   const existing = await db.sites.get(id)
   idError.value = existing ? 'Site ID already exists. Try a different one.' : ''
 }
@@ -44,9 +53,16 @@ async function save() {
   }
   if (idError.value) return
 
+  const siteId = form.value.id.trim()
+  const invalidIdMessage = getSiteIdError(siteId)
+
+  if (invalidIdMessage) {
+    idError.value = invalidIdMessage
+    return
+  }
+
   isSaving.value = true
   saveError.value = ''
-  const siteId = form.value.id.trim()
 
   try {
     await addSite({
@@ -63,11 +79,15 @@ async function save() {
 
     form.value = emptyForm()
     emit('update:modelValue', false)
-    router.push(`/site/${siteId}`)
+    router.push(buildSitePath(siteId))
   } catch (err) {
-    saveError.value = err.name === 'ConstraintError'
-      ? 'Site ID already exists. Try a different one.'
-      : 'Failed to save. Please try again.'
+    if (err.name === 'ConstraintError') {
+      saveError.value = 'Site ID already exists. Try a different one.'
+    } else if (err.code === 'INVALID_SITE_ID') {
+      idError.value = err.message
+    } else {
+      saveError.value = 'Failed to save. Please try again.'
+    }
   } finally {
     isSaving.value = false
   }
@@ -102,6 +122,7 @@ function emptyForm() {
               @input="idError = ''; saveError = ''"
               @blur="checkIdDuplicate"
             />
+            <div class="tiny" style="color: var(--ink-3)">Use letters, numbers, and hyphens only.</div>
             <div v-if="idError" class="tiny" style="color: var(--issue)">{{ idError }}</div>
             <div v-else-if="saveError" class="tiny" style="color: var(--issue)">{{ saveError }}</div>
           </div>

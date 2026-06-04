@@ -11,6 +11,7 @@ import {
   parseCableMatrixSpreadsheet,
 } from '../lib/cableMatrixSpreadsheet.js'
 import { CHECKLIST_COLUMN_TYPE } from '../lib/checklistColumns.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
@@ -78,7 +79,7 @@ function showStatus(message, tone = 'confirm') {
 }
 
 function goBack() {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function openImportPicker() {

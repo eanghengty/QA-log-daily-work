@@ -8,6 +8,7 @@ import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 import AddSiteModal from '../components/AddSiteModal.vue'
 import { exportBackup, importBackup } from '../lib/backup.js'
+import { buildSitePath } from '../lib/siteRouting.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 
 const router = useRouter()
@@ -45,7 +46,7 @@ const subtitle = computed(() => {
 })
 
 function goToSite(siteId) {
-  router.push(`/site/${siteId}`)
+  router.push(buildSitePath(siteId))
 }
 
 function addSite() {
@@ -53,7 +54,7 @@ function addSite() {
 }
 
 function newReport(siteId) {
-  router.push(`/site/${siteId}/report/new`)
+  router.push(buildSitePath(siteId, '/report/new'))
 }
 
 function exportWeek() {

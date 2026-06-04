@@ -7,6 +7,7 @@ import { useIssues } from '../composables/useIssues.js'
 import { useAttachments } from '../composables/useAttachments.js'
 import { useEmailSettings } from '../composables/useEmailSettings.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
+import { buildSitePath, toSiteFileSlug } from '../lib/siteRouting.js'
 import {
   buildEmailBody,
   copyToClipboard,
@@ -69,11 +70,11 @@ watch(
 )
 
 function goBack() {
-  router.push(`/site/${siteId}/report/${reportId}/edit`)
+  router.push(buildSitePath(siteId, `/report/${reportId}/edit`))
 }
 
 function openEmailSettings() {
-  router.push(`/site/${siteId}/email-settings`)
+  router.push(buildSitePath(siteId, '/email-settings'))
 }
 
 async function resetBody() {
@@ -108,7 +109,7 @@ async function downloadDraft() {
     htmlBody: bodyHtml.value,
     attachments,
   })
-  downloadEml(blob, `${site.value.id || siteId}-progress-${report.value.date}.eml`)
+  downloadEml(blob, `${toSiteFileSlug(site.value.id || siteId)}-progress-${report.value.date}.eml`)
   status.value = 'Draft downloaded'
   setTimeout(() => { status.value = '' }, 2500)
 }
@@ -122,7 +123,7 @@ async function downloadDraft() {
         <div class="small" style="color: var(--ink-3)">{{ formatSiteNameWithHopReviewer(site, siteId) }}</div>
       </div>
       <div class="row gap-2">
-        <button type="button" class="btn btn-ghost" @click="router.push(`/site/${siteId}`)">
+        <button type="button" class="btn btn-ghost" @click="router.push(buildSitePath(siteId))">
           <MaterialIcon name="arrow_back" />
           Back to site
         </button>

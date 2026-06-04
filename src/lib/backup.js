@@ -1,4 +1,5 @@
 import { db } from '../db/index.js'
+import { toSiteFileSlug } from './siteRouting.js'
 
 const FULL_BACKUP_TABLES = [
   'sites',
@@ -147,7 +148,7 @@ export async function exportSite(siteId) {
     attachments: await serializeAttachments(attachments),
   }
 
-  downloadJson(payload, `site-${siteId}-${new Date().toISOString().slice(0, 10)}.json`)
+  downloadJson(payload, `site-${toSiteFileSlug(siteId)}-${new Date().toISOString().slice(0, 10)}.json`)
 }
 
 export async function importSite(jsonOrObject) {
