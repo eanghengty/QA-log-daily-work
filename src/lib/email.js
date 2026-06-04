@@ -16,7 +16,7 @@ export async function buildEmailBody(report, site, settings = {}) {
   const progressSummary = formatProgressNotes(report.notes)
   let html = `<p style="margin:0 0 4px;">Dear All,</p>
 <p style="margin:0 0 14px;">Kindly find below report update for ${escapeHtml(siteLabel)}, as of ${escapeHtml(today)}</p>
-<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Progress summary</p>
+<p style="margin:14px 0 4px; font-weight:600; color:#1a1a1a;">Pending summary</p>
 <div style="margin:4px 0 0;">
 ${progressSummary}
 </div>`
