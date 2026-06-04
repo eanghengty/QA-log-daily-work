@@ -1,8 +1,9 @@
 # Telecom Site Tracker - Agent Guide
 
-A client-only telecom site progress tracker. A field coordinator tracks physical telecom
+A telecom site progress tracker. A field coordinator tracks physical telecom
 sites, logs daily progress updates, blockers, approvals / sign-offs, and field proof, then
-generates an email draft from each update. There is no backend. All data lives in IndexedDB.
+generates an email draft from each update. Tracker records still live in IndexedDB today, while
+Supabase now provides auth and realtime presence as the first step of the cloud migration.
 
 ## Stack
 
@@ -10,6 +11,7 @@ generates an email draft from each update. There is no backend. All data lives i
 - **Vite 8** build tool / dev server
 - **Tailwind CSS v4** via `@tailwindcss/vite` (`@import "tailwindcss"`)
 - **Dexie.js** for IndexedDB; no Pinia
+- **Supabase** for auth, session persistence, CLI migrations, and realtime presence
 - **Material Symbols** via `src/components/MaterialIcon.vue`
 - **SheetJS (`xlsx`)** for checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist Excel template download, export, and import
 
@@ -20,16 +22,25 @@ npm install      # install deps
 npm run dev      # dev server (Vite) on http://localhost:5185
 npm run build    # production build - use this to verify
 npm run preview  # preview production build on http://localhost:5185
+npx supabase init
+npx supabase link --project-ref <ref>
+npx supabase db push
 ```
 
 On Windows PowerShell, `npm` may be blocked by script policy. Use `npm.cmd run build`
-or `npm.cmd run dev` when that happens.
+or `npm.cmd run dev` when that happens. Do the same for Supabase CLI commands:
+`npx.cmd supabase ...`.
+
+Frontend Supabase config belongs in a local `.env.local` file using `VITE_SUPABASE_URL`
+and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders only.
 
 ## Architecture
 
 ### Data Layer (`src/db/`)
 
 - `index.js` defines the Dexie schema and `initDb()`.
+- Dexie remains the source of truth for sites, progress updates, blockers, approvals, checklists,
+  pending summary data, attachments, and site import/export in the current app.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
   `checklists`, `checklistLayouts`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`,
   `cableChecklists`, `documentReferences`, `pendingSummaries`, plus supporting lookup/activity tables already in the app.
@@ -58,6 +69,19 @@ or `npm.cmd run dev` when that happens.
   text, ordered main lists, ordered sub lists, pending items, per-item `todo` / `partial` /
   `done` status, optional partial-done comments, optional under-checking flags, and item action dates.
 
+### Supabase Layer (`src/lib/`, `src/composables/`, `supabase/`)
+
+- `src/lib/supabase.js` creates the browser Supabase client from `VITE_SUPABASE_URL` and
+  `VITE_SUPABASE_ANON_KEY`.
+- `src/composables/useAuth.js` owns auth bootstrap, session state, sign-in, sign-up, password
+  reset, sign-out, and profile sync against Supabase.
+- `src/composables/useRealtime.js` owns the websocket-backed Supabase Realtime presence channel
+  (`qa-tracker:lobby`) used by the shell.
+- `supabase/config.toml` and `supabase/migrations/` are the source of truth for Supabase CLI
+  project setup and cloud schema migrations.
+- Current cloud schema starts with `profiles`, `organizations`, and `organization_members`.
+  Do not describe the main tracker tables as cloud-backed until they are actually migrated.
+
 ### Reactive Store (`src/composables/`)
 
 - `useLiveQuery.js` wraps `Dexie.liveQuery` in Vue refs and auto-unsubscribes.
@@ -82,6 +106,10 @@ or `npm.cmd run dev` when that happens.
   main-list / sub-list / item persistence, manual add and delete actions for all three layers,
   summary counts, partial-done comment capture, under-checking flags, export-to-progress-update
   formatting, and per-item status action history.
+- `useAuth.js` is a shared singleton-style auth store; components use it for the current user,
+  session state, account updates, and auth feedback.
+- `useRealtime.js` is a shared singleton-style realtime store; components use it for connection
+  state and online-user presence.
 - Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
 - `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
@@ -159,11 +187,15 @@ or `npm.cmd run dev` when that happens.
   - `StatCard`
   - `AttachmentDropzone`
   - `MaterialIcon`
+  - `AuthView`
+  - `AccountModal`
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
 - The checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, and pending
   summary workflows live on their own routes and are linked from the site dashboard quick-action area.
 - The site dashboard top bar includes `Document Reference`, which opens a modal for site-specific
   titled document links.
+- `src/App.vue` now auth-gates the shell when Supabase env values are present. If the env values
+  are missing, the app falls back to the existing local-only IndexedDB mode.
 
 ## Conventions
 
@@ -174,8 +206,16 @@ or `npm.cmd run dev` when that happens.
   staging, or software-release language in UI copy.
 - **Reactive reads**: components should read through `use*` composables backed by
   `useLiveQuery`. Avoid direct `db.*` reads in components.
+- **Auth reads**: components should read auth and realtime state through `useAuth()` and
+  `useRealtime()`. Do not duplicate Supabase session listeners in multiple components.
 - **Async single records**: use `useSiteById()`, `useReportById()`, `useIssueById()`, and
   `useConfirmById()` for edit/detail views. Do not call async `get*ById()` inside `computed`.
+- **Supabase env**: keep real project values in `.env.local` or another ignored local env file.
+  `.env.example` must stay sanitized with placeholders.
+- **Supabase keys**: never commit `service_role` keys or other private secrets. The browser uses
+  only the public anon key.
+- **Migration truthfulness**: when updating docs or UI copy, describe the app as hybrid until the
+  main tracker tables actually move off Dexie.
 - **Site fields**: internal `url` stores the user-facing `Location / area` value. Do not label
   it as a website URL.
 - **Site fields**: sites also store `hopReviewer`. Treat it as required on new-site flows, and
@@ -277,74 +317,81 @@ or `npm.cmd run dev` when that happens.
 
 After changes, run `npm.cmd run build` on Windows or `npm run build` elsewhere.
 
+If the change touches Supabase auth, realtime, or migrations, also verify the relevant parts with:
+
+- `npx.cmd supabase db push` after linking the project
+- a local `.env.local` with valid `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+
 Then check the app in the browser:
 
 1. Fresh/clean IndexedDB overview shows 0 telecom sites and an empty-state add-site action.
-2. Add a site with a location / area and `HOP reviewer`, then confirm it appears in the sidebar
+2. With valid Supabase env values present, the app opens the auth screen before the main shell.
+3. Sign up or sign in succeeds, then the sidebar account card shows the signed-in user plus realtime status.
+4. Add a site with a location / area and `HOP reviewer`, then confirm it appears in the sidebar
    and overview.
-3. Open the site dashboard; settings, new update, log blocker, and save approval actions open.
-4. Site header text shows `HOP reviewer: ...`, and older sites without a saved reviewer show `NA`.
-5. Site dashboard top bar `Document Reference` opens a modal, saves title + link entries, shows
+5. Open the site dashboard; settings, new update, log blocker, and save approval actions open.
+6. Site header text shows `HOP reviewer: ...`, and older sites without a saved reviewer show `NA`.
+7. Site dashboard top bar `Document Reference` opens a modal, saves title + link entries, shows
    saved links on reload, and includes them in site import/export.
-6. New progress update -> save -> appears in history -> reload -> still there.
-7. New progress update -> save & generate email -> opens the update email draft.
-8. Email draft defaults the subject to `[current site] Pending summary update - date`, toggles
+8. New progress update -> save -> appears in history -> reload -> still there.
+9. New progress update -> save & generate email -> opens the update email draft.
+10. Email draft defaults the subject to `[current site] Pending summary update - date`, toggles
    update the body, and copy / `.eml` download buttons work.
-9. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
-10. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
-11. Site settings can update site fields and delete the site with the two-click confirm action.
-12. Checklist view opens from the site dashboard and shows the sticky summary section correctly.
-13. Main checklist cards load collapsed by default, can expand/collapse, and keep their summary
+11. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
+12. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
+13. Site settings can update site fields and delete the site with the two-click confirm action.
+14. Checklist view opens from the site dashboard and shows the sticky summary section correctly.
+15. Main checklist cards load collapsed by default, can expand/collapse, and keep their summary
     details visible.
-14. Main checklist drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
-15. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
-16. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
-17. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
-18. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
-19. Checklist table headers show even with no sub-check data, and adding a custom checklist column
+16. Main checklist drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+17. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
+18. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
+19. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
+20. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
+21. Checklist table headers show even with no sub-check data, and adding a custom checklist column
     asks for `Text`, `Number`, or `Date`.
-20. Custom checklist column values save on the site, reload correctly, and travel with site
+22. Custom checklist column values save on the site, reload correctly, and travel with site
     JSON export/import.
-21. Checklist Excel template downloads with baseline `Main task`, `Sub task`, `Status`, and
+23. Checklist Excel template downloads with baseline `Main task`, `Sub task`, `Status`, and
     `Comment` columns plus site custom columns, checklist export includes custom columns and `Log`,
     and checklist import groups repeated main task rows together.
-22. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
+24. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
     with `Cable Number`, `Cable label at origin end destination`, `From`, `To`, `Test`,
     `Label origin`, and `Label end`.
-23. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
-24. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
+25. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+26. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
     remain on reload.
-25. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
+27. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
     `From`, `To`, `Test`, `Label origin`, and `Label end`, and export includes `Log`.
-26. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
+28. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
     `Make`, `Model`, `Serial Number`, `Asset Tag / Label`, and `Comment`, and keeps row edits
     after reload.
-27. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
+29. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
     `Model`, `Label`, `Serial Number`, `dB`, and `Comment`, and imports/exports those columns.
-28. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
+30. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
     `Cable ID`, `HOP Criteria`, `Sweep test received`, `Remark`, and `Cable length Est. + 10 %`.
-29. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
+31. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
     picker, and saved dates remain correct on reload.
-30. Cable checklist summary uses cable-length totals rather than serial-number totals.
-31. `macro` scope hides the DCPL checklist entry points, and `tx` scope hides both antenna and
+32. Cable checklist summary uses cable-length totals rather than serial-number totals.
+33. `macro` scope hides the DCPL checklist entry points, and `tx` scope hides both antenna and
     DCPL checklist entry points, including direct-route access.
-32. Pending summary opens from the site dashboard quick actions, pasted numbered/bulleted text
+34. Pending summary opens from the site dashboard quick actions, pasted numbered/bulleted text
     generates layered main lists and sub lists, and the generated items still show after reload.
-33. Pending summary top summary cards can hide/show, and the generate pending summary card can
+35. Pending summary top summary cards can hide/show, and the generate pending summary card can
     collapse and expand without losing the pasted text.
-34. Pending summary supports manual add and delete actions for main lists, sub lists, and pending
+36. Pending summary supports manual add and delete actions for main lists, sub lists, and pending
     items, and those changes still show after reload.
-35. Ticking and unticking a pending summary item updates the done / not-done counts and records
+37. Ticking and unticking a pending summary item updates the done / not-done counts and records
     dated history entries in the item history modal.
-36. Pending summary supports `Partial done`, requires a comment before saving that state, keeps
+38. Pending summary supports `Partial done`, requires a comment before saving that state, keeps
     partial items under not-done counts, and shows the saved partial comment on reload.
-37. Pending summary `Flag checking` / `Under checking` toggles the visual marker on and off
+39. Pending summary `Flag checking` / `Under checking` toggles the visual marker on and off
     without changing done / not-done counts, and that state survives reload.
-38. Pending summary export to new progress update keeps numbered indentation, sends not-done plus
+40. Pending summary export to new progress update keeps numbered indentation, sends not-done plus
     partial-done items in the first block, sends done items in the bottom `Pending clear today:`
     block, and includes partial comments inline in the exported text.
-39. Site dashboard export includes checklist custom columns, document references, pending summary
+41. Site dashboard export includes checklist custom columns, document references, pending summary
     data, and the newer antenna, DCPL, and cable checklist data, and site import confirmation
     clearly describes the incoming counts before replacing current site data.
-40. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+42. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.
