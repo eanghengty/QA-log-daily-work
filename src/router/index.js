@@ -67,6 +67,11 @@ const routes = [
     component: () => import('../views/CableChecklistView.vue'),
   },
   {
+    path: '/site/:id/pending-summary',
+    name: 'site-pending-summary',
+    component: () => import('../views/PendingSummaryView.vue'),
+  },
+  {
     path: '/site/:id/report/new',
     name: 'new-report',
     component: () => import('../views/NewReportView.vue'),

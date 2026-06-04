@@ -297,6 +297,30 @@ db.version(18).stores({
   documentReferences: '++id, siteId, createdAt',
 })
 
+db.version(19).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id',
+  activityLog: '++id',
+  confirmSources: '++id',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+  pendingSummaries: 'siteId',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
 }
@@ -341,6 +365,7 @@ async function cleanLegacyDemoData() {
     db.dcplChecklists,
     db.cableChecklists,
     db.documentReferences,
+    db.pendingSummaries,
     async () => {
       await Promise.all([
         db.sites.clear(),
@@ -360,6 +385,7 @@ async function cleanLegacyDemoData() {
         db.dcplChecklists.clear(),
         db.cableChecklists.clear(),
         db.documentReferences.clear(),
+        db.pendingSummaries.clear(),
       ])
     }
   )

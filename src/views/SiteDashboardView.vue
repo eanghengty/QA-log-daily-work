@@ -10,6 +10,7 @@ import { useCableMatrix } from '../composables/useCableMatrix.js'
 import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useDcplChecklist } from '../composables/useDcplChecklist.js'
 import { useCableChecklist } from '../composables/useCableChecklist.js'
+import { usePendingSummary } from '../composables/usePendingSummary.js'
 import { exportSite, importSite } from '../lib/backup.js'
 import { reportNotesHtmlFromText, reportNotesPlainTextFromHtml, sanitizeReportNotesHtml } from '../lib/reportNotes.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
@@ -35,6 +36,7 @@ const { summary: cableMatrixSummary } = useCableMatrix(siteId)
 const { summary: antennaChecklistSummary } = useAntennaChecklist(siteId)
 const { summary: dcplChecklistSummary } = useDcplChecklist(siteId)
 const { summary: cableChecklistSummary } = useCableChecklist(siteId)
+const { summary: pendingProgressSummary } = usePendingSummary(siteId)
 const { logAction } = useActivityLog()
 
 const sortedReports = computed(() => [...(reports.value || [])].sort(compareReportsDesc))
@@ -101,6 +103,14 @@ const cableChecklistLabel = computed(() => {
 
   return `${formatCountLength(cableChecklistSummary.value?.totalLength || 0)} total length - ${cableChecklistSummary.value?.withSweepTest || 0} sweep test`
 })
+const pendingProgressValue = computed(() =>
+  `${pendingProgressSummary.value?.done || 0}/${pendingProgressSummary.value?.total || 0}`
+)
+const pendingProgressLabel = computed(() => {
+  if (!pendingProgressSummary.value?.total) return 'no pending items yet'
+
+  return `${pendingProgressSummary.value?.todo || 0} not done - ${pendingProgressSummary.value?.groupCount || 0} sub lists`
+})
 const topbarTitle = computed(() => formatSiteNameWithHopReviewer(site.value, siteId))
 const topbarSubtitle = computed(() =>
   `${site.value?.url || siteId} - ${latestReportLabel.value}`
@@ -140,6 +150,10 @@ function openDcplChecklist() {
 
 function openCableChecklist() {
   router.push(`/site/${siteId}/cable-checklist`)
+}
+
+function openPendingSummary() {
+  router.push(`/site/${siteId}/pending-summary`)
 }
 
 function openLatestEmailDraft() {
@@ -234,7 +248,7 @@ async function handleImportFile(event) {
   }
 
   const importSummary = summarizeImportPayload(data)
-  if (!window.confirm(`Import will replace all data for "${site.value?.name}" including updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, and document references.
+  if (!window.confirm(`Import will replace all data for "${site.value?.name}" including updates, blockers, confirmations, site checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, pending summary, and document references.
 
 Incoming file: ${importSummary}
 
@@ -302,11 +316,33 @@ function summarizeImportPayload(data) {
   const antennaChecklists = summary.antennaChecklists ?? data?.antennaChecklists?.length ?? 0
   const dcplChecklists = summary.dcplChecklists ?? data?.dcplChecklists?.length ?? 0
   const cableChecklists = summary.cableChecklists ?? data?.cableChecklists?.length ?? 0
+  const pendingSummaries = summary.pendingSummaries ?? data?.pendingSummaries?.length ?? 0
+  const pendingSummarySections =
+    summary.pendingSummarySections ??
+    data?.pendingSummaries?.reduce((total, board) => total + (board.sections?.length || 0), 0) ??
+    0
+  const pendingSummaryItems =
+    summary.pendingSummaryItems ??
+    data?.pendingSummaries?.reduce(
+      (total, board) =>
+        total +
+        (board.sections || []).reduce(
+          (sectionTotal, section) =>
+            sectionTotal +
+            (section.groups || []).reduce(
+              (groupTotal, group) => groupTotal + (group.items?.length || 0),
+              0
+            ),
+          0
+        ),
+      0
+    ) ??
+    0
   const documentReferences = summary.documentReferences ?? data?.documentReferences?.length ?? 0
   const emailSettings = summary.emailSettings ?? (data?.emailSettings ? 1 : 0)
   const attachments = summary.attachments ?? data?.attachments?.length ?? 0
 
-  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${checklistLayout} custom checklist columns, ${cableMatrices} cable matrix rows, ${cableMatrixLayout} custom cable matrix columns, ${antennaChecklists} antenna rows, ${antennaChecklistLayout} custom antenna checklist columns, ${dcplChecklists} DCPL rows, ${dcplChecklistLayout} custom DCPL checklist columns, ${cableChecklists} cable checklist rows, ${cableChecklistLayout} custom cable checklist columns, ${documentReferences} document references, ${attachments} attachments, ${emailSettings} email settings record`
+  return `${reports} updates, ${issues} blockers, ${confirms} confirmations, ${checklists} site checklist items, ${checklistLayout} custom checklist columns, ${cableMatrices} cable matrix rows, ${cableMatrixLayout} custom cable matrix columns, ${antennaChecklists} antenna rows, ${antennaChecklistLayout} custom antenna checklist columns, ${dcplChecklists} DCPL rows, ${dcplChecklistLayout} custom DCPL checklist columns, ${cableChecklists} cable checklist rows, ${cableChecklistLayout} custom cable checklist columns, ${pendingSummaries} pending summary board, ${pendingSummarySections} pending sub lists, ${pendingSummaryItems} pending items, ${documentReferences} document references, ${attachments} attachments, ${emailSettings} email settings record`
 }
 </script>
 
@@ -372,6 +408,7 @@ function summarizeImportPayload(data) {
           :sub="dcplChecklistLabel"
         />
         <StatCard label="Cable checklist" :value="cableChecklistValue" accent="var(--confirm)" :sub="cableChecklistLabel" />
+        <StatCard label="Pending summary" :value="pendingProgressValue" accent="var(--confirm)" :sub="pendingProgressLabel" />
       </div>
 
       <div class="col gap-3">
@@ -460,6 +497,15 @@ function summarizeImportPayload(data) {
               <div class="title-md">Cable checklist</div>
             </div>
             <div class="small">cable labels, HOP, and length</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openPendingSummary">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="format_list_bulleted" />
+              </div>
+              <div class="title-md">Pending summary</div>
+            </div>
+            <div class="small">generate layered pending lists</div>
           </button>
         </div>
       </div>

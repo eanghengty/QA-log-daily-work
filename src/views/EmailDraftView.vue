@@ -49,7 +49,7 @@ watch(
       const prefix = saved.defaultSubject.replace(/\s*-\s*\d{1,2}\s+\w+\s+\d{4}$/, '').trim()
       subject.value = `${prefix} - ${today}`
     } else {
-      subject.value = `[${site.value.code || site.value.id}] Progress update - ${today}`
+      subject.value = `[${site.value.name || site.value.id || siteId}] Pending summary update - ${today}`
     }
   },
   { immediate: true },

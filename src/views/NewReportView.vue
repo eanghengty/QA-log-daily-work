@@ -33,6 +33,18 @@ const { logAction } = useActivityLog()
 const today = new Date().toISOString().split('T')[0]
 const form = ref(emptyForm())
 const notesEditor = ref(null)
+const initialPrefillNotes =
+  !isEdit.value && typeof window !== 'undefined'
+    ? String(window.history.state?.reportPrefillNotes || '')
+    : ''
+
+if (initialPrefillNotes) {
+  form.value = {
+    ...form.value,
+    notes: initialPrefillNotes,
+    notesRich: reportNotesHtmlFromText(initialPrefillNotes),
+  }
+}
 
 const pageTitle = computed(() => (isEdit.value ? 'Edit progress update' : 'New progress update'))
 const pageSubtitle = computed(() => `${formatSiteNameWithHopReviewer(site.value, siteId)} - ${form.value.date || today}`)

@@ -32,7 +32,7 @@ or `npm.cmd run dev` when that happens.
 - `index.js` defines the Dexie schema and `initDb()`.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
   `checklists`, `checklistLayouts`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`,
-  `cableChecklists`, `documentReferences`, plus supporting lookup/activity tables already in the app.
+  `cableChecklists`, `documentReferences`, `pendingSummaries`, plus supporting lookup/activity tables already in the app.
 - The app starts empty. Do not add demo, dummy, placeholder, or hardcoded site records.
 - Internal table/field names still use `reports`, `issues`, and `confirms`, but the user-facing
   domain language is telecom progress updates, blockers, and approvals.
@@ -54,6 +54,8 @@ or `npm.cmd run dev` when that happens.
   row-level change log.
 - `documentReferences` stores one titled document link per site for quick access from the site
   dashboard top bar.
+- `pendingSummaries` stores one generated pending-summary board per site, including pasted source
+  text, ordered main lists, ordered sub lists, pending items, and per-item done / not-done action dates.
 
 ### Reactive Store (`src/composables/`)
 
@@ -75,6 +77,9 @@ or `npm.cmd run dev` when that happens.
 - `useCableChecklist.js` owns per-site cable checklist CRUD, summary counts, Excel import,
   drag reorder persistence, cable-length totals, date handling for `sweepTestReceived`, and
   row-level change logging.
+- `usePendingSummary.js` owns per-site pending summary generation from pasted text, nested
+  main-list / sub-list / item persistence, manual add and delete actions for all three layers,
+  summary counts, and per-item done / not-done action history.
 - Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
 - `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
@@ -115,7 +120,7 @@ or `npm.cmd run dev` when that happens.
 
 - `exportSite()` must include all per-site records for progress updates, blockers, confirmations,
   site checklist, checklist custom columns, cable matrix, antenna checklist, DCPL checklist,
-  cable checklist, document references, email settings, and linked attachments.
+  cable checklist, pending summary, document references, email settings, and linked attachments.
 - Site export payloads include a `summary` block so the site dashboard import flow can show the
   user exactly what the incoming file contains before replacing current site data.
 - `importSite()` must restore all of those tables for the selected site, not just the original
@@ -139,6 +144,7 @@ or `npm.cmd run dev` when that happens.
   - `AntennaChecklistView` (site antenna asset board)
   - `DcplChecklistView` (site DCPL asset board)
   - `CableChecklistView` (site cable checklist board)
+  - `PendingSummaryView` (generated pending-summary board)
   - `NewReportView` (progress update form)
   - `EmailDraftView`
   - `IssueLogView` (blocker form)
@@ -151,8 +157,8 @@ or `npm.cmd run dev` when that happens.
   - `AttachmentDropzone`
   - `MaterialIcon`
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
-- The checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist workflows
-  live on their own routes and are linked from the site dashboard quick-action area.
+- The checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, and pending
+  summary workflows live on their own routes and are linked from the site dashboard quick-action area.
 - The site dashboard top bar includes `Document Reference`, which opens a modal for site-specific
   titled document links.
 
@@ -216,6 +222,13 @@ or `npm.cmd run dev` when that happens.
   save field changes on blur. Avoid partial-row update bugs that clear unrelated columns.
 - **Cable checklist dates**: `Sweep test received` should use date values in import, storage,
   export, and manual entry UI. Manual entry should use a date picker.
+- **Pending summary parsing**: pasted text treats top-level numbered lines such as `1.` as main
+  lists, nested numbered lines such as `1.1` as sub lists, and bulleted lines as pending items.
+- **Pending summary UX**: the top summary cards can be hidden / shown, the generate card can
+  collapse, and the board must support manual add plus delete actions for main lists, sub lists,
+  and pending items.
+- **Pending summary history**: ticking and unticking a pending item must record the action date in
+  the item history so the user can review when it changed.
 - **Approvals**: saving an approval requires at least one attachment.
 - **IDs**: `sites` use slug strings; `reports`, `issues`, `confirms`, and `attachments`
   auto-increment.
@@ -225,8 +238,8 @@ or `npm.cmd run dev` when that happens.
   attachment ID arrays as plain arrays, not Vue reactive proxies.
 - **Site import/export**: site-level import and export from the site dashboard must always cover
   updates, blockers, confirmations, site checklist, checklist custom columns, cable matrix,
-  antenna checklist, DCPL checklist, cable checklist, document references, email settings,
-  and linked attachments.
+  antenna checklist, DCPL checklist, cable checklist, pending summary, document references,
+  email settings, and linked attachments.
 - **Document references**: document references are site-specific titled links managed from the
   site dashboard top bar modal and must be included in site delete and site import/export flows.
 - **Scope gating**: site scope checks are case-insensitive. `macro` sites must not expose the
@@ -243,6 +256,7 @@ or `npm.cmd run dev` when that happens.
 - `/site/:id/antenna-checklist` - site antenna checklist
 - `/site/:id/dcpl-checklist` - site DCPL checklist
 - `/site/:id/cable-checklist` - site cable checklist
+- `/site/:id/pending-summary` - generated pending summary board
 - `/site/:id/report/new` - new progress update
 - `/site/:id/report/:reportId/edit` - edit progress update
 - `/site/:id/report/:reportId/email` - email draft
@@ -305,8 +319,16 @@ Then check the app in the browser:
 30. Cable checklist summary uses cable-length totals rather than serial-number totals.
 31. `macro` scope hides the DCPL checklist entry points, and `tx` scope hides both antenna and
     DCPL checklist entry points, including direct-route access.
-32. Site dashboard export includes checklist custom columns, document references, and the newer
-    antenna, DCPL, and cable checklist data, and site import confirmation clearly describes the
-    incoming counts before replacing current site data.
-33. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+32. Pending summary opens from the site dashboard quick actions, pasted numbered/bulleted text
+    generates layered main lists and sub lists, and the generated items still show after reload.
+33. Pending summary top summary cards can hide/show, and the generate pending summary card can
+    collapse and expand without losing the pasted text.
+34. Pending summary supports manual add and delete actions for main lists, sub lists, and pending
+    items, and those changes still show after reload.
+35. Ticking and unticking a pending summary item updates the done / not-done counts and records
+    dated history entries in the item history modal.
+36. Site dashboard export includes checklist custom columns, document references, pending summary
+    data, and the newer antenna, DCPL, and cable checklist data, and site import confirmation
+    clearly describes the incoming counts before replacing current site data.
+37. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

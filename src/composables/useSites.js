@@ -45,6 +45,7 @@ export function useSites() {
     await db.dcplChecklists.where('siteId').equals(id).delete()
     await db.cableChecklists.where('siteId').equals(id).delete()
     await db.documentReferences.where('siteId').equals(id).delete()
+    await db.pendingSummaries.delete(id)
     await db.emailSettings.delete(id)
     await db.sites.delete(id)
   }

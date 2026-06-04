@@ -21,6 +21,7 @@ const FULL_BACKUP_TABLES = [
   'dcplChecklists',
   'cableChecklists',
   'documentReferences',
+  'pendingSummaries',
 ]
 
 const SITE_SCOPED_TABLES = [
@@ -38,6 +39,7 @@ const SITE_SCOPED_TABLES = [
   'dcplChecklists',
   'cableChecklists',
   'documentReferences',
+  'pendingSummaries',
 ]
 
 export async function exportBackup() {
@@ -73,6 +75,7 @@ export async function exportSite(siteId) {
     dcplChecklists,
     cableChecklists,
     documentReferences,
+    pendingSummary,
   ] = await Promise.all([
     db.sites.get(siteId),
     db.reports.where('siteId').equals(siteId).toArray(),
@@ -90,6 +93,7 @@ export async function exportSite(siteId) {
     db.dcplChecklists.where('siteId').equals(siteId).sortBy('order'),
     db.cableChecklists.where('siteId').equals(siteId).sortBy('order'),
     db.documentReferences.where('siteId').equals(siteId).reverse().sortBy('createdAt'),
+    db.pendingSummaries.get(siteId),
   ])
 
   const allAttachmentIds = [
@@ -119,6 +123,7 @@ export async function exportSite(siteId) {
       dcplChecklists,
       cableChecklists,
       documentReferences,
+      pendingSummaries: pendingSummary ? [pendingSummary] : [],
       emailSettings,
       attachments,
     }),
@@ -137,6 +142,7 @@ export async function exportSite(siteId) {
     dcplChecklists,
     cableChecklists,
     documentReferences,
+    pendingSummaries: pendingSummary ? [pendingSummary] : [],
     emailSettings: emailSettings || null,
     attachments: await serializeAttachments(attachments),
   }
@@ -181,6 +187,7 @@ export async function importSite(jsonOrObject) {
     db.dcplChecklists,
     db.cableChecklists,
     db.documentReferences,
+    db.pendingSummaries,
     async () => {
       await db.sites.put(data.site)
 
@@ -268,6 +275,7 @@ export async function importBackup(jsonOrObject) {
     db.dcplChecklists,
     db.cableChecklists,
     db.documentReferences,
+    db.pendingSummaries,
     async () => {
       await Promise.all(FULL_BACKUP_TABLES.map((tableName) => db[tableName].clear()))
 
@@ -292,6 +300,7 @@ export async function importBackup(jsonOrObject) {
         db.dcplChecklists.bulkPut(data.dcplChecklists || []),
         db.cableChecklists.bulkPut(data.cableChecklists || []),
         db.documentReferences.bulkPut(data.documentReferences || []),
+        db.pendingSummaries.bulkPut(data.pendingSummaries || []),
       ])
     },
   )
@@ -390,6 +399,24 @@ function buildSiteSummary(data) {
     dcplChecklists: data.dcplChecklists?.length || 0,
     cableChecklists: data.cableChecklists?.length || 0,
     documentReferences: data.documentReferences?.length || 0,
+    pendingSummaries: data.pendingSummaries?.length || 0,
+    pendingSummarySections:
+      data.pendingSummaries?.reduce((total, board) => total + (board.sections?.length || 0), 0) || 0,
+    pendingSummaryItems:
+      data.pendingSummaries?.reduce(
+        (total, board) =>
+          total +
+          (board.sections || []).reduce(
+            (sectionTotal, section) =>
+              sectionTotal +
+              (section.groups || []).reduce(
+                (groupTotal, group) => groupTotal + (group.items?.length || 0),
+                0
+              ),
+            0
+          ),
+        0
+      ) || 0,
     emailSettings: data.emailSettings ? 1 : 0,
     attachments: data.attachments?.length || 0,
   }

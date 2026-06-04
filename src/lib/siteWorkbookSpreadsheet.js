@@ -19,6 +19,10 @@ import {
   buildCableChecklistExportRows,
   CABLE_CHECKLIST_EXPORT_COLS,
 } from './cableChecklistSpreadsheet.js'
+import {
+  buildPendingSummaryExportRows,
+  PENDING_SUMMARY_EXPORT_COLS,
+} from './pendingSummarySpreadsheet.js'
 
 const HEADER_ROW_HEIGHT = 20
 const BODY_ROW_HEIGHT = 18
@@ -29,7 +33,7 @@ const BORDER_COLOR = 'FF000000'
 
 export async function exportSiteWorkbook(siteId) {
   const { default: ExcelJS } = await import('exceljs')
-  const [site, checklists, checklistLayout, cableMatrixLayout, antennaChecklistLayout, dcplChecklistLayout, cableChecklistLayout, cableMatrices, antennaChecklists, dcplChecklists, cableChecklists] =
+  const [site, checklists, checklistLayout, cableMatrixLayout, antennaChecklistLayout, dcplChecklistLayout, cableChecklistLayout, cableMatrices, antennaChecklists, dcplChecklists, cableChecklists, pendingSummary] =
     await Promise.all([
       db.sites.get(siteId),
       db.checklists.where('siteId').equals(siteId).sortBy('order'),
@@ -42,6 +46,7 @@ export async function exportSiteWorkbook(siteId) {
       db.antennaChecklists.where('siteId').equals(siteId).sortBy('order'),
       db.dcplChecklists.where('siteId').equals(siteId).sortBy('order'),
       db.cableChecklists.where('siteId').equals(siteId).sortBy('order'),
+      db.pendingSummaries.get(siteId),
     ])
 
   if (!site) {
@@ -81,6 +86,12 @@ export async function exportSiteWorkbook(siteId) {
     'Cable checklist',
     buildCableChecklistExportRows(cableChecklists, cableChecklistLayout?.customColumns || []),
     CABLE_CHECKLIST_EXPORT_COLS(cableChecklistLayout?.customColumns || [])
+  )
+  appendSheet(
+    workbook,
+    'Pending summary',
+    buildPendingSummaryExportRows(pendingSummary),
+    PENDING_SUMMARY_EXPORT_COLS
   )
 
   const buffer = await workbook.xlsx.writeBuffer()
