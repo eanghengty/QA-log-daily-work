@@ -7,11 +7,16 @@ import AddSiteModal from './AddSiteModal.vue'
 import ScopeModal from './ScopeModal.vue'
 import ActivityLogModal from './ActivityLogModal.vue'
 import ConfirmSourceModal from './ConfirmSourceModal.vue'
+import AccountModal from './AccountModal.vue'
 import { useScopes } from '../composables/useScopes.js'
 import { buildSitePath } from '../lib/siteRouting.js'
+import { useAuth } from '../composables/useAuth.js'
+import { useRealtime } from '../composables/useRealtime.js'
 
 const { sites } = useSites()
 const { scopes } = useScopes()
+const { authEnabled, user, currentDisplayName, profileSyncReady } = useAuth()
+const { connectionStatus, onlineCount } = useRealtime()
 const route = useRoute()
 const router = useRouter()
 
@@ -20,6 +25,7 @@ const showAddSite = ref(false)
 const showScopeModal = ref(false)
 const showActivityLog = ref(false)
 const showConfirmSources = ref(false)
+const showAccountModal = ref(false)
 const collapsedScopes = ref(new Set())
 
 const groupedSites = computed(() => {
@@ -57,6 +63,18 @@ function goToAddSite() {
 function goToHome() {
   router.push('/')
 }
+
+const realtimeChipClass = computed(() => {
+  if (connectionStatus.value === 'connected') return 'chip-confirm'
+  if (connectionStatus.value === 'connecting') return 'chip-neutral'
+  return 'chip-issue'
+})
+
+const realtimeLabel = computed(() => {
+  if (connectionStatus.value === 'connected') return 'Realtime on'
+  if (connectionStatus.value === 'connecting') return 'Realtime...'
+  return 'Realtime off'
+})
 </script>
 
 <template>
@@ -125,6 +143,7 @@ function goToHome() {
     <ScopeModal v-model="showScopeModal" />
     <ActivityLogModal v-model="showActivityLog" />
     <ConfirmSourceModal v-model="showConfirmSources" />
+    <AccountModal v-model="showAccountModal" />
 
     <div style="border-top: 1.5px solid var(--line)">
       <button
@@ -160,6 +179,43 @@ function goToHome() {
         <MaterialIcon name="fact_check" :size="14" style="color: var(--ink-3)" />
         <span class="tiny" style="color: var(--ink-3)">Confirmation sources</span>
       </button>
+      <div v-if="authEnabled" class="p-4" style="padding-top: 0">
+        <button
+          type="button"
+          class="box-soft col gap-2"
+          style="width: 100%; padding: 12px; text-align: left; cursor: pointer"
+          @click="showAccountModal = true"
+        >
+          <div class="row items-center gap-2">
+            <div class="box center" style="width: 26px; height: 26px; border-radius: 999px; background: var(--paper)">
+              <MaterialIcon name="person" :size="15" />
+            </div>
+            <div class="col grow" style="min-width: 0">
+              <div class="title-md" style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
+                {{ currentDisplayName }}
+              </div>
+              <div class="tiny" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
+                {{ user?.email || 'Signed out' }}
+              </div>
+            </div>
+            <MaterialIcon name="chevron_right" :size="14" style="color: var(--ink-3)" />
+          </div>
+          <div class="row gap-2" style="flex-wrap: wrap">
+            <span class="chip" :class="realtimeChipClass">
+              <MaterialIcon name="sensors" :size="14" />
+              {{ realtimeLabel }}
+            </span>
+            <span class="chip chip-neutral">
+              <MaterialIcon name="groups" :size="14" />
+              {{ onlineCount }} online
+            </span>
+            <span v-if="!profileSyncReady" class="chip chip-issue">
+              <MaterialIcon name="warning" :size="14" />
+              Profile SQL pending
+            </span>
+          </div>
+        </button>
+      </div>
     </div>
   </div>
 </template>
