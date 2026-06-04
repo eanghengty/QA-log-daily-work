@@ -62,6 +62,7 @@ watch(
 )
 
 const title = computed(() => (site.value ? `${site.value.name} pending summary` : 'Pending summary'))
+const hasGeneratedPending = computed(() => sections.value.length > 0)
 const subtitle = computed(() => {
   const location = site.value?.url || siteId
   if (!summary.value.total) return `${location} - no pending items generated yet`
@@ -427,7 +428,7 @@ function formatDateTime(value) {
           <StatCard label="Not done" :value="summary.todo" accent="var(--pending)" :sub="summary.total ? 'still pending' : 'no actions yet'" />
         </div>
 
-        <div class="box p-4 col gap-3">
+        <div v-if="!hasGeneratedPending" class="box p-4 col gap-3">
           <div class="between gap-3" style="flex-wrap: wrap">
             <div class="col gap-1">
               <div class="title-md">Generate pending summary</div>
@@ -455,6 +456,13 @@ function formatDateTime(value) {
             placeholder="Example:&#10;1.HOP photo and installation&#10;  1.1 Pole&#10;  - MCBB photos&#10;  - Flag and steel label"
             style="resize: vertical; line-height: 1.5"
           />
+        </div>
+
+        <div v-else class="box-soft p-4 col gap-2">
+          <div class="title-md">Pending summary already generated</div>
+          <div class="small">
+            Delete all main lists first if you want to generate a new pending summary from pasted text.
+          </div>
         </div>
 
         <div class="box-soft p-4 col gap-3" style="margin-top: 12px">

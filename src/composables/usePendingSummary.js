@@ -15,9 +15,15 @@ export function usePendingSummary(siteId) {
   const summary = computed(() => summarizePendingSummary(sections.value))
 
   async function generateFromText(sourceText) {
-    const parsed = parsePendingSummaryInput(sourceText)
     const existingBoard = await db.pendingSummaries.get(siteId)
-    const nextSections = preserveExistingState(parsed.sections, existingBoard?.sections || [])
+    const existingSections = normalizeSections(existingBoard?.sections || [])
+
+    if (existingSections.length) {
+      throw new Error('Pending summary already exists. Delete all main lists before generating again.')
+    }
+
+    const parsed = parsePendingSummaryInput(sourceText)
+    const nextSections = preserveExistingState(parsed.sections, existingSections)
     const now = new Date().toISOString()
 
     await db.pendingSummaries.put({

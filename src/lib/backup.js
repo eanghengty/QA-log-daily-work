@@ -1,49 +1,50 @@
 import { db } from '../db/index.js'
 import { toSiteFileSlug } from './siteRouting.js'
 
-const FULL_BACKUP_TABLES = [
+const FULL_BACKUP_TABLES = Object.freeze(db.tables.map((table) => table.name))
+const FULL_BACKUP_TABLE_HANDLES = Object.freeze(FULL_BACKUP_TABLES.map((tableName) => db[tableName]))
+
+const SITE_COLLECTION_EXPORTS = Object.freeze([
+  { tableName: 'reports', payloadKey: 'reports' },
+  { tableName: 'issues', payloadKey: 'issues' },
+  { tableName: 'confirms', payloadKey: 'confirms' },
+  { tableName: 'checklists', payloadKey: 'checklists', sortBy: 'order' },
+  { tableName: 'cableMatrices', payloadKey: 'cableMatrices', sortBy: 'order' },
+  { tableName: 'antennaChecklists', payloadKey: 'antennaChecklists', sortBy: 'order' },
+  { tableName: 'dcplChecklists', payloadKey: 'dcplChecklists', sortBy: 'order' },
+  { tableName: 'cableChecklists', payloadKey: 'cableChecklists', sortBy: 'order' },
+  { tableName: 'documentReferences', payloadKey: 'documentReferences', sortBy: 'createdAt', reverse: true },
+])
+
+const SITE_SINGLE_EXPORTS = Object.freeze([
+  { tableName: 'emailSettings', payloadKey: 'emailSettings' },
+  { tableName: 'checklistLayouts', payloadKey: 'checklistLayout' },
+  { tableName: 'cableMatrixLayouts', payloadKey: 'cableMatrixLayout' },
+  { tableName: 'antennaChecklistLayouts', payloadKey: 'antennaChecklistLayout' },
+  { tableName: 'dcplChecklistLayouts', payloadKey: 'dcplChecklistLayout' },
+  { tableName: 'cableChecklistLayouts', payloadKey: 'cableChecklistLayout' },
+  {
+    tableName: 'pendingSummaries',
+    payloadKey: 'pendingSummaries',
+    serialize: (record) => (record ? [record] : []),
+    deserialize: (value) => (Array.isArray(value) ? value[0] || null : value || null),
+  },
+])
+
+const SITE_ATTACHMENT_SOURCE_PAYLOAD_KEYS = Object.freeze(['reports', 'issues', 'confirms'])
+const SITE_EXCLUDED_SCHEMA_TABLES = Object.freeze([
   'sites',
-  'reports',
-  'issues',
-  'confirms',
-  'emailSettings',
   'attachments',
   'scopes',
   'activityLog',
   'confirmSources',
-  'checklists',
-  'checklistLayouts',
-  'cableMatrixLayouts',
-  'antennaChecklistLayouts',
-  'dcplChecklistLayouts',
-  'cableChecklistLayouts',
-  'cableMatrices',
-  'antennaChecklists',
-  'dcplChecklists',
-  'cableChecklists',
-  'documentReferences',
-  'pendingSummaries',
-]
-
-const SITE_SCOPED_TABLES = [
-  'reports',
-  'issues',
-  'confirms',
-  'checklists',
-  'checklistLayouts',
-  'cableMatrixLayouts',
-  'antennaChecklistLayouts',
-  'dcplChecklistLayouts',
-  'cableChecklistLayouts',
-  'cableMatrices',
-  'antennaChecklists',
-  'dcplChecklists',
-  'cableChecklists',
-  'documentReferences',
-  'pendingSummaries',
-]
+])
+const SITE_TRANSACTION_TABLE_HANDLES = Object.freeze(
+  [...SITE_COLLECTION_EXPORTS, ...SITE_SINGLE_EXPORTS].map((config) => db[config.tableName]),
+)
 
 export async function exportBackup() {
+  assertBackupCoverage()
   const snapshot = await loadFullBackupSnapshot()
   const backup = {
     _version: 2,
@@ -59,49 +60,30 @@ export async function exportBackup() {
 }
 
 export async function exportSite(siteId) {
-  const [
-    site,
-    reports,
-    issues,
-    confirms,
-    emailSettings,
-    checklists,
-    checklistLayout,
-    cableMatrixLayout,
-    antennaChecklistLayout,
-    dcplChecklistLayout,
-    cableChecklistLayout,
-    cableMatrices,
-    antennaChecklists,
-    dcplChecklists,
-    cableChecklists,
-    documentReferences,
-    pendingSummary,
-  ] = await Promise.all([
-    db.sites.get(siteId),
-    db.reports.where('siteId').equals(siteId).toArray(),
-    db.issues.where('siteId').equals(siteId).toArray(),
-    db.confirms.where('siteId').equals(siteId).toArray(),
-    db.emailSettings.get(siteId),
-    db.checklists.where('siteId').equals(siteId).sortBy('order'),
-    db.checklistLayouts.get(siteId),
-    db.cableMatrixLayouts.get(siteId),
-    db.antennaChecklistLayouts.get(siteId),
-    db.dcplChecklistLayouts.get(siteId),
-    db.cableChecklistLayouts.get(siteId),
-    db.cableMatrices.where('siteId').equals(siteId).sortBy('order'),
-    db.antennaChecklists.where('siteId').equals(siteId).sortBy('order'),
-    db.dcplChecklists.where('siteId').equals(siteId).sortBy('order'),
-    db.cableChecklists.where('siteId').equals(siteId).sortBy('order'),
-    db.documentReferences.where('siteId').equals(siteId).reverse().sortBy('createdAt'),
-    db.pendingSummaries.get(siteId),
-  ])
+  assertBackupCoverage()
 
-  const allAttachmentIds = [
-    ...reports.flatMap((report) => report.attachmentIds || []),
-    ...issues.flatMap((issue) => issue.attachmentIds || []),
-    ...confirms.flatMap((confirm) => confirm.attachmentIds || []),
-  ]
+  const site = await db.sites.get(siteId)
+  if (!site) {
+    throw new Error('Site not found.')
+  }
+
+  const siteCollections = await Promise.all(
+    SITE_COLLECTION_EXPORTS.map(async (config) => [
+      config.payloadKey,
+      await loadSiteCollection(config, siteId),
+    ]),
+  )
+  const siteSingles = await Promise.all(
+    SITE_SINGLE_EXPORTS.map(async (config) => [
+      config.payloadKey,
+      await loadSiteSingle(config, siteId),
+    ]),
+  )
+  const siteData = Object.fromEntries([...siteCollections, ...siteSingles])
+
+  const allAttachmentIds = SITE_ATTACHMENT_SOURCE_PAYLOAD_KEYS.flatMap((payloadKey) =>
+    (siteData[payloadKey] || []).flatMap((record) => record.attachmentIds || []),
+  )
   const uniqueAttachmentIds = [...new Set(allAttachmentIds)]
   const attachments = (await db.attachments.bulkGet(uniqueAttachmentIds)).filter(Boolean)
 
@@ -110,41 +92,11 @@ export async function exportSite(siteId) {
     _type: 'site',
     _exportedAt: new Date().toISOString(),
     summary: buildSiteSummary({
-      reports,
-      issues,
-      confirms,
-      checklists,
-      checklistLayout,
-      cableMatrixLayout,
-      antennaChecklistLayout,
-      dcplChecklistLayout,
-      cableChecklistLayout,
-      cableMatrices,
-      antennaChecklists,
-      dcplChecklists,
-      cableChecklists,
-      documentReferences,
-      pendingSummaries: pendingSummary ? [pendingSummary] : [],
-      emailSettings,
+      ...siteData,
       attachments,
     }),
     site,
-    reports,
-    issues,
-    confirms,
-    checklists,
-    checklistLayout: checklistLayout || null,
-    cableMatrixLayout: cableMatrixLayout || null,
-    antennaChecklistLayout: antennaChecklistLayout || null,
-    dcplChecklistLayout: dcplChecklistLayout || null,
-    cableChecklistLayout: cableChecklistLayout || null,
-    cableMatrices,
-    antennaChecklists,
-    dcplChecklists,
-    cableChecklists,
-    documentReferences,
-    pendingSummaries: pendingSummary ? [pendingSummary] : [],
-    emailSettings: emailSettings || null,
+    ...siteData,
     attachments: await serializeAttachments(attachments),
   }
 
@@ -152,7 +104,8 @@ export async function exportSite(siteId) {
 }
 
 export async function importSite(jsonOrObject) {
-  const data = parseJsonInput(jsonOrObject, 'Invalid file — could not parse JSON.')
+  assertBackupCoverage()
+  const data = parseJsonInput(jsonOrObject, 'Invalid file - could not parse JSON.')
 
   if (data._type !== 'site' || !data.site) {
     throw new Error('Not a site export file.')
@@ -162,9 +115,9 @@ export async function importSite(jsonOrObject) {
   const siteId = data.site.id
   const existingIds = Object.fromEntries(
     await Promise.all(
-      SITE_SCOPED_TABLES.map(async (tableName) => [
-        tableName,
-        await db[tableName].where('siteId').equals(siteId).primaryKeys(),
+      SITE_COLLECTION_EXPORTS.map(async (config) => [
+        config.tableName,
+        await db[config.tableName].where('siteId').equals(siteId).primaryKeys(),
       ]),
     ),
   )
@@ -172,73 +125,38 @@ export async function importSite(jsonOrObject) {
   await db.transaction(
     'rw',
     db.sites,
-    db.reports,
-    db.issues,
-    db.confirms,
-    db.emailSettings,
     db.attachments,
-    db.checklists,
-    db.checklistLayouts,
-    db.cableMatrixLayouts,
-    db.antennaChecklistLayouts,
-    db.dcplChecklistLayouts,
-    db.cableChecklistLayouts,
-    db.cableMatrices,
-    db.antennaChecklists,
-    db.dcplChecklists,
-    db.cableChecklists,
-    db.documentReferences,
-    db.pendingSummaries,
+    ...SITE_TRANSACTION_TABLE_HANDLES,
     async () => {
       await db.sites.put(data.site)
 
       await Promise.all(
-        SITE_SCOPED_TABLES.map((tableName) =>
-          db[tableName].bulkDelete(existingIds[tableName] || []),
+        SITE_COLLECTION_EXPORTS.map((config) =>
+          db[config.tableName].bulkDelete(existingIds[config.tableName] || []),
         ),
       )
 
       await Promise.all(
-        SITE_SCOPED_TABLES.map((tableName) => db[tableName].bulkPut(data[tableName] || [])),
+        SITE_COLLECTION_EXPORTS.map((config) =>
+          db[config.tableName].bulkPut(data[config.payloadKey] || []),
+        ),
       )
 
       await db.attachments.bulkPut(attachmentsRestored)
 
-      if (data.emailSettings) {
-        await db.emailSettings.put(data.emailSettings)
-      } else {
-        await db.emailSettings.delete(siteId)
-      }
+      await Promise.all(
+        SITE_SINGLE_EXPORTS.map(async (config) => {
+          const nextValue = config.deserialize
+            ? config.deserialize(data[config.payloadKey])
+            : data[config.payloadKey] || null
 
-      if (data.checklistLayout) {
-        await db.checklistLayouts.put(data.checklistLayout)
-      } else {
-        await db.checklistLayouts.delete(siteId)
-      }
-
-      if (data.cableMatrixLayout) {
-        await db.cableMatrixLayouts.put(data.cableMatrixLayout)
-      } else {
-        await db.cableMatrixLayouts.delete(siteId)
-      }
-
-      if (data.antennaChecklistLayout) {
-        await db.antennaChecklistLayouts.put(data.antennaChecklistLayout)
-      } else {
-        await db.antennaChecklistLayouts.delete(siteId)
-      }
-
-      if (data.dcplChecklistLayout) {
-        await db.dcplChecklistLayouts.put(data.dcplChecklistLayout)
-      } else {
-        await db.dcplChecklistLayouts.delete(siteId)
-      }
-
-      if (data.cableChecklistLayout) {
-        await db.cableChecklistLayouts.put(data.cableChecklistLayout)
-      } else {
-        await db.cableChecklistLayouts.delete(siteId)
-      }
+          if (nextValue) {
+            await db[config.tableName].put(nextValue)
+          } else {
+            await db[config.tableName].delete(siteId)
+          }
+        }),
+      )
     },
   )
 
@@ -246,63 +164,30 @@ export async function importSite(jsonOrObject) {
 }
 
 export async function importBackup(jsonOrObject) {
-  const data = parseJsonInput(jsonOrObject, 'Invalid backup file — could not parse JSON.')
+  assertBackupCoverage()
+  const data = parseJsonInput(jsonOrObject, 'Invalid backup file - could not parse JSON.')
 
   if (!data.sites || !data.reports) {
-    throw new Error('Invalid backup file — missing required tables.')
+    throw new Error('Invalid backup file - missing required tables.')
   }
 
   const attachmentsRestored = await restoreAttachments(data.attachments || [])
 
   await db.transaction(
     'rw',
-    db.sites,
-    db.reports,
-    db.issues,
-    db.confirms,
-    db.emailSettings,
-    db.attachments,
-    db.scopes,
-    db.activityLog,
-    db.confirmSources,
-    db.checklists,
-    db.checklistLayouts,
-    db.cableMatrixLayouts,
-    db.antennaChecklistLayouts,
-    db.dcplChecklistLayouts,
-    db.cableChecklistLayouts,
-    db.cableMatrices,
-    db.antennaChecklists,
-    db.dcplChecklists,
-    db.cableChecklists,
-    db.documentReferences,
-    db.pendingSummaries,
+    ...FULL_BACKUP_TABLE_HANDLES,
     async () => {
       await Promise.all(FULL_BACKUP_TABLES.map((tableName) => db[tableName].clear()))
 
-      await Promise.all([
-        db.sites.bulkPut(data.sites || []),
-        db.reports.bulkPut(data.reports || []),
-        db.issues.bulkPut(data.issues || []),
-        db.confirms.bulkPut(data.confirms || []),
-        db.emailSettings.bulkPut(data.emailSettings || []),
-        db.attachments.bulkPut(attachmentsRestored),
-        db.scopes.bulkPut(data.scopes || []),
-        db.activityLog.bulkPut(data.activityLog || []),
-        db.confirmSources.bulkPut(data.confirmSources || []),
-        db.checklists.bulkPut(data.checklists || []),
-        db.checklistLayouts.bulkPut(data.checklistLayouts || []),
-        db.cableMatrixLayouts.bulkPut(data.cableMatrixLayouts || []),
-        db.antennaChecklistLayouts.bulkPut(data.antennaChecklistLayouts || []),
-        db.dcplChecklistLayouts.bulkPut(data.dcplChecklistLayouts || []),
-        db.cableChecklistLayouts.bulkPut(data.cableChecklistLayouts || []),
-        db.cableMatrices.bulkPut(data.cableMatrices || []),
-        db.antennaChecklists.bulkPut(data.antennaChecklists || []),
-        db.dcplChecklists.bulkPut(data.dcplChecklists || []),
-        db.cableChecklists.bulkPut(data.cableChecklists || []),
-        db.documentReferences.bulkPut(data.documentReferences || []),
-        db.pendingSummaries.bulkPut(data.pendingSummaries || []),
-      ])
+      await Promise.all(
+        FULL_BACKUP_TABLES.map((tableName) =>
+          db[tableName].bulkPut(
+            tableName === 'attachments'
+              ? attachmentsRestored
+              : data[tableName] || [],
+          ),
+        ),
+      )
     },
   )
 }
@@ -315,6 +200,46 @@ async function loadFullBackupSnapshot() {
   return Object.fromEntries(
     FULL_BACKUP_TABLES.map((tableName, index) => [tableName, rows[index]]),
   )
+}
+
+async function loadSiteCollection(config, siteId) {
+  const query = db[config.tableName].where('siteId').equals(siteId)
+  const collection = config.reverse ? query.reverse() : query
+  return config.sortBy ? collection.sortBy(config.sortBy) : collection.toArray()
+}
+
+async function loadSiteSingle(config, siteId) {
+  const record = await db[config.tableName].get(siteId)
+  if (config.serialize) {
+    return config.serialize(record)
+  }
+  return record || null
+}
+
+function assertBackupCoverage() {
+  const schemaTableNames = db.tables.map((table) => table.name)
+  const schemaTableNameSet = new Set(schemaTableNames)
+
+  const unknownSiteConfigTables = [
+    ...SITE_COLLECTION_EXPORTS.map((config) => config.tableName),
+    ...SITE_SINGLE_EXPORTS.map((config) => config.tableName),
+    ...SITE_EXCLUDED_SCHEMA_TABLES,
+  ].filter((tableName) => !schemaTableNameSet.has(tableName))
+
+  if (unknownSiteConfigTables.length) {
+    throw new Error(`Backup configuration references unknown tables: ${unknownSiteConfigTables.join(', ')}`)
+  }
+
+  const siteCoverageNames = new Set([
+    ...SITE_COLLECTION_EXPORTS.map((config) => config.tableName),
+    ...SITE_SINGLE_EXPORTS.map((config) => config.tableName),
+    ...SITE_EXCLUDED_SCHEMA_TABLES,
+  ])
+  const uncoveredSiteTables = schemaTableNames.filter((tableName) => !siteCoverageNames.has(tableName))
+
+  if (uncoveredSiteTables.length) {
+    throw new Error(`Backup coverage needs review for new schema tables: ${uncoveredSiteTables.join(', ')}`)
+  }
 }
 
 function parseJsonInput(jsonOrObject, errorMessage) {
@@ -357,10 +282,7 @@ async function restoreAttachments(attachments) {
   return Promise.all(
     attachments.map(async (attachment) => {
       if (typeof attachment.blob === 'string' && attachment.blob.startsWith('data:')) {
-        const blob = await base64ToBlob(
-          attachment.blob,
-          attachment._blobType || 'application/octet-stream',
-        )
+        const blob = await base64ToBlob(attachment.blob)
         const { _blobType, ...rest } = attachment
         return { ...rest, blob }
       }
@@ -412,11 +334,11 @@ function buildSiteSummary(data) {
               sectionTotal +
               (section.groups || []).reduce(
                 (groupTotal, group) => groupTotal + (group.items?.length || 0),
-                0
+                0,
               ),
-            0
+            0,
           ),
-        0
+        0,
       ) || 0,
     emailSettings: data.emailSettings ? 1 : 0,
     attachments: data.attachments?.length || 0,
