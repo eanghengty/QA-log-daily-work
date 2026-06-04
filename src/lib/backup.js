@@ -1,8 +1,28 @@
-import { db } from '../db/index.js'
+import { db, ensureLookupSeedData } from '../db/index.js'
 import { toSiteFileSlug } from './siteRouting.js'
 
 const FULL_BACKUP_TABLES = Object.freeze(db.tables.map((table) => table.name))
 const FULL_BACKUP_TABLE_HANDLES = Object.freeze(FULL_BACKUP_TABLES.map((tableName) => db[tableName]))
+const LOCAL_MIGRATION_COUNT_TABLES = Object.freeze([
+  'sites',
+  'reports',
+  'issues',
+  'confirms',
+  'attachments',
+  'emailSettings',
+  'checklists',
+  'checklistLayouts',
+  'cableMatrixLayouts',
+  'antennaChecklistLayouts',
+  'dcplChecklistLayouts',
+  'cableChecklistLayouts',
+  'cableMatrices',
+  'antennaChecklists',
+  'dcplChecklists',
+  'cableChecklists',
+  'documentReferences',
+  'pendingSummaries',
+])
 
 const SITE_COLLECTION_EXPORTS = Object.freeze([
   { tableName: 'reports', payloadKey: 'reports' },
@@ -57,6 +77,36 @@ export async function exportBackup() {
     backup,
     `qa-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`,
   )
+}
+
+export async function getLocalMigrationSummary() {
+  const counts = Object.fromEntries(
+    await Promise.all(
+      LOCAL_MIGRATION_COUNT_TABLES.map(async (tableName) => [tableName, await db[tableName].count()]),
+    ),
+  )
+
+  const totalRecords = Object.values(counts).reduce((total, count) => total + count, 0)
+
+  return {
+    hasData: totalRecords > 0,
+    totalRecords,
+    counts,
+  }
+}
+
+export async function clearLocalTrackerData() {
+  assertBackupCoverage()
+
+  await db.transaction(
+    'rw',
+    ...FULL_BACKUP_TABLE_HANDLES,
+    async () => {
+      await Promise.all(FULL_BACKUP_TABLES.map((tableName) => db[tableName].clear()))
+    },
+  )
+
+  await ensureLookupSeedData()
 }
 
 export async function exportSite(siteId) {

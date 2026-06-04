@@ -58,7 +58,7 @@ async function handleSignOut() {
         <div class="between">
           <div class="col gap-1">
             <div class="title-md">Account</div>
-            <div class="tiny">Manage the signed-in field user and Supabase profile.</div>
+            <div class="tiny">Manage the signed-in field user account.</div>
           </div>
           <button type="button" class="btn btn-ghost" style="padding: 4px 8px" :disabled="isBusy" @click="close">
             <MaterialIcon name="close" :size="18" />
@@ -92,7 +92,7 @@ async function handleSignOut() {
 
         <div v-if="!profileSyncReady" class="chip chip-issue">
           <MaterialIcon name="warning" :size="14" />
-          Profile sync is not active until the Supabase SQL setup has been applied.
+          Account profile sync is not active yet.
         </div>
 
         <div v-if="authError" class="chip chip-issue">

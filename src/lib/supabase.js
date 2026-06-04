@@ -1,16 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = `${import.meta.env.VITE_SUPABASE_URL || ''}`.trim()
-const supabaseAnonKey = `${import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`.trim()
+export const supabaseUrl = `${import.meta.env.VITE_SUPABASE_URL || ''}`.trim()
+export const supabaseAnonKey = `${import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`.trim()
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
 
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
       },
       realtime: {
         params: {
@@ -22,5 +22,5 @@ export const supabase = isSupabaseConfigured
 
 export function getSupabaseConfigError() {
   if (isSupabaseConfigured) return ''
-  return 'Supabase auth is enabled in code, but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not set yet.'
+  return 'Custom backend auth needs VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the local env file.'
 }

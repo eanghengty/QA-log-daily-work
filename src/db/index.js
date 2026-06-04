@@ -1,6 +1,12 @@
 import Dexie from 'dexie'
 
 export const db = new Dexie('qa-tracker')
+const DEFAULT_SCOPES = Object.freeze([{ name: 'Macro' }])
+const DEFAULT_CONFIRM_SOURCES = Object.freeze([
+  { name: 'Email' },
+  { name: 'Slack' },
+  { name: 'Meeting' },
+])
 
 db.version(1).stores({
   sites: 'id',
@@ -38,10 +44,7 @@ db.version(4).stores({
   emailSettings: 'siteId',
   scopes: '++id',
 }).upgrade(async (tx) => {
-  const existing = await tx.table('scopes').count()
-  if (existing === 0) {
-    await tx.table('scopes').bulkAdd([{ name: 'Macro' }])
-  }
+  await ensureTxSeedRows(tx, 'scopes', DEFAULT_SCOPES)
 })
 
 db.version(5).stores({
@@ -66,14 +69,7 @@ db.version(6).stores({
   activityLog: '++id',
   confirmSources: '++id',
 }).upgrade(async (tx) => {
-  const existing = await tx.table('confirmSources').count()
-  if (existing === 0) {
-    await tx.table('confirmSources').bulkAdd([
-      { name: 'Email' },
-      { name: 'Slack' },
-      { name: 'Meeting' },
-    ])
-  }
+  await ensureTxSeedRows(tx, 'confirmSources', DEFAULT_CONFIRM_SOURCES)
 })
 
 db.version(7).stores({
@@ -323,6 +319,14 @@ db.version(19).stores({
 
 export async function initDb() {
   await cleanLegacyDemoData()
+  await ensureLookupSeedData()
+}
+
+export async function ensureLookupSeedData() {
+  await Promise.all([
+    ensureTableSeedRows(db.scopes, DEFAULT_SCOPES),
+    ensureTableSeedRows(db.confirmSources, DEFAULT_CONFIRM_SOURCES),
+  ])
 }
 
 async function cleanLegacyDemoData() {
@@ -389,4 +393,18 @@ async function cleanLegacyDemoData() {
       ])
     }
   )
+}
+
+async function ensureTableSeedRows(table, rows) {
+  const existing = await table.count()
+  if (existing === 0 && rows.length) {
+    await table.bulkAdd(rows)
+  }
+}
+
+async function ensureTxSeedRows(tx, tableName, rows) {
+  const existing = await tx.table(tableName).count()
+  if (existing === 0 && rows.length) {
+    await tx.table(tableName).bulkAdd(rows)
+  }
 }

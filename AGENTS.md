@@ -3,7 +3,8 @@
 A telecom site progress tracker. A field coordinator tracks physical telecom
 sites, logs daily progress updates, blockers, approvals / sign-offs, and field proof, then
 generates an email draft from each update. Tracker records still live in IndexedDB today, while
-Supabase now provides auth and realtime presence as the first step of the cloud migration.
+Supabase now provides custom backend auth infrastructure, Edge Functions, CLI migrations, and
+realtime presence as the first step of the cloud migration.
 
 ## Stack
 
@@ -11,7 +12,7 @@ Supabase now provides auth and realtime presence as the first step of the cloud 
 - **Vite 8** build tool / dev server
 - **Tailwind CSS v4** via `@tailwindcss/vite` (`@import "tailwindcss"`)
 - **Dexie.js** for IndexedDB; no Pinia
-- **Supabase** for auth, session persistence, CLI migrations, and realtime presence
+- **Supabase** for custom backend auth infrastructure, Edge Functions, CLI migrations, and realtime presence
 - **Material Symbols** via `src/components/MaterialIcon.vue`
 - **SheetJS (`xlsx`)** for checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist Excel template download, export, and import
 
@@ -72,15 +73,23 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 ### Supabase Layer (`src/lib/`, `src/composables/`, `supabase/`)
 
 - `src/lib/supabase.js` creates the browser Supabase client from `VITE_SUPABASE_URL` and
-  `VITE_SUPABASE_ANON_KEY`.
-- `src/composables/useAuth.js` owns auth bootstrap, session state, sign-in, sign-up, password
-  reset, sign-out, and profile sync against Supabase.
+  `VITE_SUPABASE_ANON_KEY`. The browser client is for Edge Functions and Realtime; it does not
+  use `supabase.auth` browser sessions anymore.
+- `src/composables/useAuth.js` owns custom backend auth bootstrap, first-account detection,
+  session restore, sign-in, first-account creation, sign-out, account update, local session-token
+  storage, and session-replacement handling.
 - `src/composables/useRealtime.js` owns the websocket-backed Supabase Realtime presence channel
   (`qa-tracker:lobby`) used by the shell.
 - `supabase/config.toml` and `supabase/migrations/` are the source of truth for Supabase CLI
   project setup and cloud schema migrations.
-- Current cloud schema starts with `profiles`, `organizations`, and `organization_members`.
-  Do not describe the main tracker tables as cloud-backed until they are actually migrated.
+- `supabase/functions/` contains the custom backend auth endpoints. Current auth endpoints are
+  `auth-bootstrap-status`, `auth-create-first-user`, `auth-login`, `auth-session`,
+  `auth-logout`, and `auth-update-account`.
+- Current cloud auth schema includes `app_users` and `app_sessions` for custom backend login.
+  Earlier foundation tables such as `profiles`, `organizations`, and `organization_members` may
+  still exist from the prior Supabase-auth experiment, but the active login flow now uses the
+  custom backend auth tables and functions instead.
+- Do not describe the main tracker tables as cloud-backed until they are actually migrated.
 
 ### Reactive Store (`src/composables/`)
 
@@ -107,7 +116,7 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   summary counts, partial-done comment capture, under-checking flags, export-to-progress-update
   formatting, and per-item status action history.
 - `useAuth.js` is a shared singleton-style auth store; components use it for the current user,
-  session state, account updates, and auth feedback.
+  session state, account updates, first-account bootstrap state, and auth feedback.
 - `useRealtime.js` is a shared singleton-style realtime store; components use it for connection
   state and online-user presence.
 - Blocker and approval codes are generated per site by incrementing the highest existing
@@ -187,7 +196,7 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   - `StatCard`
   - `AttachmentDropzone`
   - `MaterialIcon`
-  - `AuthView`
+  - `AuthView` (custom backend sign-in and first-account bootstrap)
   - `AccountModal`
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
 - The checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, and pending
@@ -196,6 +205,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   titled document links.
 - `src/App.vue` now auth-gates the shell when Supabase env values are present. If the env values
   are missing, the app falls back to the existing local-only IndexedDB mode.
+- The auth gate should offer `Create first account` only while `app_users` is empty. After the
+  first custom backend account exists, the screen returns to sign-in only.
 
 ## Conventions
 
@@ -207,13 +218,19 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - **Reactive reads**: components should read through `use*` composables backed by
   `useLiveQuery`. Avoid direct `db.*` reads in components.
 - **Auth reads**: components should read auth and realtime state through `useAuth()` and
-  `useRealtime()`. Do not duplicate Supabase session listeners in multiple components.
+  `useRealtime()`. Do not reintroduce direct `supabase.auth` browser-session handling in
+  components.
 - **Async single records**: use `useSiteById()`, `useReportById()`, `useIssueById()`, and
   `useConfirmById()` for edit/detail views. Do not call async `get*ById()` inside `computed`.
 - **Supabase env**: keep real project values in `.env.local` or another ignored local env file.
   `.env.example` must stay sanitized with placeholders.
 - **Supabase keys**: never commit `service_role` keys or other private secrets. The browser uses
-  only the public anon key.
+  only the public anon key; privileged custom auth work belongs inside Edge Functions.
+- **Custom auth**: `app_users` / `app_sessions` now own login, password hash storage, and
+  single-active-session tracking. Do not mix them with `supabase.auth` browser login flows.
+- **First account bootstrap**: only `auth-create-first-user` should create the initial account
+  when the custom user table is empty. Once a user exists, the UI should not keep exposing
+  general public sign-up.
 - **Migration truthfulness**: when updating docs or UI copy, describe the app as hybrid until the
   main tracker tables actually move off Dexie.
 - **Site fields**: internal `url` stores the user-facing `Location / area` value. Do not label
@@ -317,67 +334,71 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 
 After changes, run `npm.cmd run build` on Windows or `npm run build` elsewhere.
 
-If the change touches Supabase auth, realtime, or migrations, also verify the relevant parts with:
+If the change touches custom backend auth, Supabase realtime, Edge Functions, or migrations, also
+verify the relevant parts with:
 
 - `npx.cmd supabase db push` after linking the project
+- `npx.cmd supabase functions deploy <function-name> --no-verify-jwt` for changed auth functions
 - a local `.env.local` with valid `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
 
 Then check the app in the browser:
 
 1. Fresh/clean IndexedDB overview shows 0 telecom sites and an empty-state add-site action.
-2. With valid Supabase env values present, the app opens the auth screen before the main shell.
-3. Sign up or sign in succeeds, then the sidebar account card shows the signed-in user plus realtime status.
-4. Add a site with a location / area and `HOP reviewer`, then confirm it appears in the sidebar
+2. With valid Supabase env values present, the app opens the custom backend auth screen before the main shell.
+3. If `app_users` is empty, `Create first account` is available. After the first account is created, the screen returns to sign-in only.
+4. Sign in succeeds, then the sidebar account card shows the signed-in user plus realtime status.
+5. Signing in from another tab, browser, or device closes the older session and returns it to the auth screen with a takeover notice.
+6. Add a site with a location / area and `HOP reviewer`, then confirm it appears in the sidebar
    and overview.
-5. Open the site dashboard; settings, new update, log blocker, and save approval actions open.
-6. Site header text shows `HOP reviewer: ...`, and older sites without a saved reviewer show `NA`.
-7. Site dashboard top bar `Document Reference` opens a modal, saves title + link entries, shows
+7. Open the site dashboard; settings, new update, log blocker, and save approval actions open.
+8. Site header text shows `HOP reviewer: ...`, and older sites without a saved reviewer show `NA`.
+9. Site dashboard top bar `Document Reference` opens a modal, saves title + link entries, shows
    saved links on reload, and includes them in site import/export.
-8. New progress update -> save -> appears in history -> reload -> still there.
-9. New progress update -> save & generate email -> opens the update email draft.
-10. Email draft defaults the subject to `[current site] Pending summary update - date`, toggles
+10. New progress update -> save -> appears in history -> reload -> still there.
+11. New progress update -> save & generate email -> opens the update email draft.
+12. Email draft defaults the subject to `[current site] Pending summary update - date`, toggles
    update the body, and copy / `.eml` download buttons work.
-11. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
-12. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
-13. Site settings can update site fields and delete the site with the two-click confirm action.
-14. Checklist view opens from the site dashboard and shows the sticky summary section correctly.
-15. Main checklist cards load collapsed by default, can expand/collapse, and keep their summary
+13. Log a blocker -> site open-blocker badge increments; clicking the blocker opens edit mode.
+14. Approval save is blocked at 0 attachments and allowed at 1 or more attachments.
+15. Site settings can update site fields and delete the site with the two-click confirm action.
+16. Checklist view opens from the site dashboard and shows the sticky summary section correctly.
+17. Main checklist cards load collapsed by default, can expand/collapse, and keep their summary
     details visible.
-16. Main checklist drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
-17. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
-18. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
-19. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
-20. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
-21. Checklist table headers show even with no sub-check data, and adding a custom checklist column
+18. Main checklist drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+19. Duplicate main checklist opens a styled modal, requires a unique name, and copies sub tasks.
+20. Delete main checklist opens a styled modal before removing the main checklist and its sub tasks.
+21. Sub checklist comment button opens a styled modal, and saved comments remain on reload.
+22. Sub checklist log button opens a styled modal, and status-change dates remain on reload.
+23. Checklist table headers show even with no sub-check data, and adding a custom checklist column
     asks for `Text`, `Number`, or `Date`.
-22. Custom checklist column values save on the site, reload correctly, and travel with site
+24. Custom checklist column values save on the site, reload correctly, and travel with site
     JSON export/import.
-23. Checklist Excel template downloads with baseline `Main task`, `Sub task`, `Status`, and
+25. Checklist Excel template downloads with baseline `Main task`, `Sub task`, `Status`, and
     `Comment` columns plus site custom columns, checklist export includes custom columns and `Log`,
     and checklist import groups repeated main task rows together.
-24. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
+26. Cable matrix opens from the site dashboard, shows the sticky summary section, and saves rows
     with `Cable Number`, `Cable label at origin end destination`, `From`, `To`, `Test`,
     `Label origin`, and `Label end`.
-25. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
-26. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
+27. Cable matrix drag reorder persists and auto-scrolls near the top/bottom edge while dragging.
+28. Cable matrix log button opens a styled modal, and change dates for status / `From` / `To`
     remain on reload.
-27. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
+29. Cable matrix Excel template downloads with `Cable Number`, `Cable label at origin end destination`,
     `From`, `To`, `Test`, `Label origin`, and `Label end`, and export includes `Log`.
-28. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
+30. Antenna checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`,
     `Make`, `Model`, `Serial Number`, `Asset Tag / Label`, and `Comment`, and keeps row edits
     after reload.
-29. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
+31. DCPL checklist opens from the site dashboard, saves rows with `LEVEL`, `Description`, `Make`,
     `Model`, `Label`, `Serial Number`, `dB`, and `Comment`, and imports/exports those columns.
-30. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
+32. Cable checklist opens from the site dashboard, saves rows with `LEVEL`, `Cable label`,
     `Cable ID`, `HOP Criteria`, `Sweep test received`, `Remark`, and `Cable length Est. + 10 %`.
-31. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
+33. Cable checklist `Sweep test received` imports Excel dates correctly, manual entry uses a date
     picker, and saved dates remain correct on reload.
-32. Cable checklist summary uses cable-length totals rather than serial-number totals.
-33. `macro` scope hides the DCPL checklist entry points, and `tx` scope hides both antenna and
+34. Cable checklist summary uses cable-length totals rather than serial-number totals.
+35. `macro` scope hides the DCPL checklist entry points, and `tx` scope hides both antenna and
     DCPL checklist entry points, including direct-route access.
-34. Pending summary opens from the site dashboard quick actions, pasted numbered/bulleted text
+36. Pending summary opens from the site dashboard quick actions, pasted numbered/bulleted text
     generates layered main lists and sub lists, and the generated items still show after reload.
-35. Pending summary top summary cards can hide/show, and the generate pending summary card can
+37. Pending summary top summary cards can hide/show, and the generate pending summary card can
     collapse and expand without losing the pasted text.
 36. Pending summary supports manual add and delete actions for main lists, sub lists, and pending
     items, and those changes still show after reload.
