@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { useAttachments } from '../composables/useAttachments.js'
+import { hasUsableAttachmentBlob } from '../lib/attachmentBlobs.js'
 import MaterialIcon from './MaterialIcon.vue'
 
 const props = defineProps({
@@ -28,6 +29,7 @@ watch(
     const records = await getAttachmentsByIds(props.attachmentIds)
     items.value = records
       .filter(Boolean)
+      .filter(hasUsableAttachmentBlob)
       .map((att) => ({
         ...att,
         objectUrl: URL.createObjectURL(att.blob),

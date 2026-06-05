@@ -1,6 +1,7 @@
 import { db, ensureLookupSeedData } from '../db/index.js'
+import { normalizeAttachmentRecord, normalizeAttachmentRecords } from './attachmentBlobs.js'
 import { buildCloudBoardPayloads } from './cloudBoardMirror.js'
-import { toSiteFileSlug } from './siteRouting.js'
+import { isValidSiteId, toSafeSiteId, toSiteFileSlug } from './siteRouting.js'
 import {
   importCloudSiteCoreData,
   refreshTrackerSetupMirror,
@@ -164,7 +165,7 @@ export async function exportSite(siteId) {
 
 export async function importSite(jsonOrObject) {
   assertBackupCoverage()
-  const data = parseJsonInput(jsonOrObject, 'Invalid file - could not parse JSON.')
+  const data = normalizeBackupSiteIds(parseJsonInput(jsonOrObject, 'Invalid file - could not parse JSON.'))
 
   if (data._type !== 'site' || !data.site) {
     throw new Error('Not a site export file.')
@@ -233,12 +234,15 @@ export async function importSite(jsonOrObject) {
     })
   }
 
-  return siteId
+  return {
+    siteId,
+    remappedSiteIds: data._remappedSiteIds || [],
+  }
 }
 
 export async function importBackup(jsonOrObject) {
   assertBackupCoverage()
-  const data = parseJsonInput(jsonOrObject, 'Invalid backup file - could not parse JSON.')
+  const data = normalizeBackupSiteIds(parseJsonInput(jsonOrObject, 'Invalid backup file - could not parse JSON.'))
 
   if (!data.sites || !data.reports) {
     throw new Error('Invalid backup file - missing required tables.')
@@ -315,6 +319,10 @@ export async function importBackup(jsonOrObject) {
 
     await refreshTrackerSetupMirror()
   }
+
+  return {
+    remappedSiteIds: data._remappedSiteIds || [],
+  }
 }
 
 async function loadFullBackupSnapshot() {
@@ -379,6 +387,108 @@ function parseJsonInput(jsonOrObject, errorMessage) {
   return jsonOrObject
 }
 
+function normalizeBackupSiteIds(data) {
+  if (!data || typeof data !== 'object') return data
+
+  const siteIdMap = buildSiteIdMap(data)
+  if (!siteIdMap.size) return data
+
+  const remappedSiteIds = []
+
+  if (data.site?.id && siteIdMap.has(String(data.site.id).trim())) {
+    const oldId = String(data.site.id).trim()
+    const newId = siteIdMap.get(oldId)
+    data.site = { ...data.site, id: newId }
+    if (oldId !== newId) remappedSiteIds.push({ from: oldId, to: newId })
+  }
+
+  if (Array.isArray(data.sites)) {
+    data.sites = data.sites.map((site) => {
+      if (!site || typeof site !== 'object') return site
+      const oldId = String(site.id ?? '').trim()
+      const newId = siteIdMap.get(oldId)
+      if (!newId) return site
+      if (oldId !== newId) remappedSiteIds.push({ from: oldId, to: newId })
+      return { ...site, id: newId }
+    })
+  }
+
+  for (const key of Object.keys(data)) {
+    if (key === 'site' || key === 'sites' || key.startsWith('_')) continue
+    data[key] = remapSiteIdReferences(data[key], siteIdMap)
+  }
+
+  data._remappedSiteIds = dedupeRemappedSiteIds(remappedSiteIds)
+  return data
+}
+
+function buildSiteIdMap(data) {
+  const siteRecords = Array.isArray(data.sites)
+    ? data.sites
+    : data.site
+      ? [data.site]
+      : []
+  const siteIdMap = new Map()
+  const usedSiteIds = new Set()
+
+  for (const site of siteRecords) {
+    const siteId = String(site?.id ?? '').trim()
+    if (siteId && isValidSiteId(siteId)) {
+      usedSiteIds.add(siteId)
+      siteIdMap.set(siteId, siteId)
+    }
+  }
+
+  for (const site of siteRecords) {
+    const siteId = String(site?.id ?? '').trim()
+    if (!siteId || siteIdMap.has(siteId)) continue
+
+    const safeSiteId = makeUniqueSiteId(toSafeSiteId(siteId), usedSiteIds)
+    usedSiteIds.add(safeSiteId)
+    siteIdMap.set(siteId, safeSiteId)
+  }
+
+  return siteIdMap
+}
+
+function makeUniqueSiteId(baseSiteId, usedSiteIds) {
+  let siteId = baseSiteId
+  let suffix = 2
+
+  while (usedSiteIds.has(siteId)) {
+    siteId = `${baseSiteId}-${suffix}`
+    suffix += 1
+  }
+
+  return siteId
+}
+
+function remapSiteIdReferences(value, siteIdMap) {
+  if (Array.isArray(value)) {
+    return value.map((item) => remapSiteIdReferences(item, siteIdMap))
+  }
+
+  if (!value || typeof value !== 'object') return value
+
+  const nextValue = { ...value }
+  const oldSiteId = String(nextValue.siteId ?? '').trim()
+  if (oldSiteId && siteIdMap.has(oldSiteId)) {
+    nextValue.siteId = siteIdMap.get(oldSiteId)
+  }
+
+  return nextValue
+}
+
+function dedupeRemappedSiteIds(remappedSiteIds) {
+  const seen = new Set()
+  return remappedSiteIds.filter((item) => {
+    const key = `${item.from}->${item.to}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function downloadJson(data, filename) {
   const json = JSON.stringify(data, null, 2)
   const blob = new Blob([json], { type: 'application/json' })
@@ -393,28 +503,24 @@ function downloadJson(data, filename) {
 async function serializeAttachments(attachments) {
   return Promise.all(
     attachments.map(async (attachment) => {
-      if (attachment.blob instanceof Blob) {
-        const base64 = await blobToBase64(attachment.blob)
-        return { ...attachment, blob: base64, _blobType: attachment.blob.type }
+      const normalized = await normalizeAttachmentRecord(attachment)
+      if (normalized?.blob instanceof Blob) {
+        const base64 = await blobToBase64(normalized.blob)
+        return { ...normalized, blob: base64, _blobType: normalized.blob.type }
       }
 
-      return attachment
+      return normalized
     }),
   )
 }
 
 async function restoreAttachments(attachments) {
-  return Promise.all(
-    attachments.map(async (attachment) => {
-      if (typeof attachment.blob === 'string' && attachment.blob.startsWith('data:')) {
-        const blob = await base64ToBlob(attachment.blob)
-        const { _blobType, ...rest } = attachment
-        return { ...rest, blob }
-      }
-
-      return attachment
-    }),
-  )
+  const normalized = await normalizeAttachmentRecords(attachments)
+  return normalized.map((attachment) => {
+    if (!attachment || typeof attachment !== 'object') return attachment
+    const { _blobType, ...rest } = attachment
+    return rest
+  })
 }
 
 function blobToBase64(blob) {
@@ -424,11 +530,6 @@ function blobToBase64(blob) {
     reader.onerror = reject
     reader.readAsDataURL(blob)
   })
-}
-
-async function base64ToBlob(base64) {
-  const response = await fetch(base64)
-  return response.blob()
 }
 
 function buildSiteSummary(data) {

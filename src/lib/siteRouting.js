@@ -1,14 +1,28 @@
 const SITE_ID_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/
 
+export function isValidSiteId(value) {
+  return SITE_ID_PATTERN.test(String(value ?? '').trim())
+}
+
 export function getSiteIdError(value) {
   const siteId = String(value ?? '').trim()
 
   if (!siteId) return 'Site ID is required.'
-  if (!SITE_ID_PATTERN.test(siteId)) {
+  if (!isValidSiteId(siteId)) {
     return 'Use only letters, numbers, and hyphens for Site ID, for example tower-01.'
   }
 
   return ''
+}
+
+export function toSafeSiteId(value) {
+  return (
+    String(value ?? '')
+      .trim()
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'site'
+  )
 }
 
 export function assertValidSiteId(value) {
@@ -31,11 +45,5 @@ export function buildSitePath(siteId, suffix = '') {
 }
 
 export function toSiteFileSlug(value) {
-  return (
-    String(value ?? '')
-      .trim()
-      .replace(/[^A-Za-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .toLowerCase() || 'site'
-  )
+  return toSafeSiteId(value).toLowerCase()
 }

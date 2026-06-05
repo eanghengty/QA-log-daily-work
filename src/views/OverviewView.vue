@@ -15,6 +15,7 @@ const router = useRouter()
 const { logAction } = useActivityLog()
 const showAddSite = ref(false)
 const restoreStatus = ref('')
+const isRestoring = ref(false)
 const { sites } = useSites()
 const {
   reports,
@@ -105,6 +106,7 @@ async function backup() {
 }
 
 function triggerRestore() {
+  if (isRestoring.value) return
   document.getElementById('restore-file-input').click()
 }
 
@@ -118,16 +120,30 @@ async function handleRestoreFile(event) {
   )
   if (!confirmed) return
 
+  isRestoring.value = true
+  restoreStatus.value = ''
+
   try {
     const text = await file.text()
-    await importBackup(text)
-    await logAction('Full backup restored', '')
-    restoreStatus.value = 'Restore complete'
-    setTimeout(() => { restoreStatus.value = '' }, 3000)
+    const result = await importBackup(text)
+    const remapDetail = formatSiteIdRemaps(result?.remappedSiteIds)
+    await logAction('Full backup restored', remapDetail)
+    restoreStatus.value = remapDetail
+      ? `Restore complete. Renamed legacy Site IDs: ${remapDetail}`
+      : 'Restore complete'
+    setTimeout(() => { restoreStatus.value = '' }, remapDetail ? 8000 : 3000)
   } catch (error) {
     restoreStatus.value = `Restore failed: ${error.message}`
     setTimeout(() => { restoreStatus.value = '' }, 5000)
+  } finally {
+    isRestoring.value = false
   }
+}
+
+function formatSiteIdRemaps(remappedSiteIds = []) {
+  return remappedSiteIds
+    .map((item) => `${item.from} -> ${item.to}`)
+    .join(', ')
 }
 </script>
 
@@ -138,15 +154,16 @@ async function handleRestoreFile(event) {
         <MaterialIcon name="download" />
         Export week
       </button>
-      <button type="button" class="btn btn-ghost" @click="backup">
+      <button type="button" class="btn btn-ghost" :disabled="isRestoring" @click="backup">
         <MaterialIcon name="backup" />
         Backup
       </button>
-      <button type="button" class="btn btn-ghost" @click="triggerRestore">
-        <MaterialIcon name="restore" />
-        Restore
+      <button type="button" class="btn btn-ghost" :disabled="isRestoring" @click="triggerRestore">
+        <span v-if="isRestoring" class="restore-button-spinner" />
+        <MaterialIcon v-else name="restore" />
+        {{ isRestoring ? 'Restoring' : 'Restore' }}
       </button>
-      <button type="button" class="btn btn-primary" @click="addSite">
+      <button type="button" class="btn btn-primary" :disabled="isRestoring" @click="addSite">
         <MaterialIcon name="add" />
         Add site
       </button>
@@ -264,5 +281,59 @@ async function handleRestoreFile(event) {
       <MaterialIcon :name="restoreStatus.startsWith('Restore failed') ? 'error' : 'check_circle'" :size="14" />
       {{ restoreStatus }}
     </div>
+
+    <div v-if="isRestoring" class="restore-overlay" role="status" aria-live="polite">
+      <div class="restore-panel box col gap-3">
+        <span class="restore-spinner" />
+        <div class="title-md">Restoring backup</div>
+        <div class="small">Please keep this page open while the tracker data and attachments are restored.</div>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.restore-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(247, 243, 232, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.restore-panel {
+  width: min(340px, 100%);
+  align-items: center;
+  padding: 26px;
+  text-align: center;
+  background: var(--paper);
+}
+
+.restore-spinner,
+.restore-button-spinner {
+  border-radius: 50%;
+  border-style: solid;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.restore-spinner {
+  width: 34px;
+  height: 34px;
+  border-width: 3px;
+  border-color: var(--line-2);
+  border-top-color: var(--ink);
+}
+
+.restore-button-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  border-color: var(--line-2);
+  border-top-color: var(--ink);
+}
+</style>

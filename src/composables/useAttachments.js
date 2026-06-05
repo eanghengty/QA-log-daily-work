@@ -1,19 +1,22 @@
 import { db } from '../db/index.js'
+import { hasUsableAttachmentBlob, normalizeAttachmentRecord } from '../lib/attachmentBlobs.js'
 
 export function useAttachments() {
   async function addAttachment(file) {
     const blob = file.blob || file
-    return await db.attachments.add({
+    const attachment = await normalizeAttachmentRecord({
       blob,
       name: file.name,
       size: file.size,
       type: file.type,
       createdAt: new Date().toISOString(),
     })
+    return await db.attachments.add(attachment)
   }
 
   async function getAttachmentById(id) {
-    return await db.attachments.get(id)
+    const attachment = await getAttachmentByFlexibleId(id)
+    return await repairAttachmentBlob(attachment)
   }
 
   async function deleteAttachment(id) {
@@ -21,7 +24,10 @@ export function useAttachments() {
   }
 
   async function getAttachmentsByIds(ids) {
-    return await db.attachments.bulkGet(ids)
+    const attachments = await Promise.all(
+      (ids || []).map((id) => getAttachmentById(id)),
+    )
+    return attachments
   }
 
   return {
@@ -30,4 +36,28 @@ export function useAttachments() {
     deleteAttachment,
     getAttachmentsByIds,
   }
+}
+
+async function getAttachmentByFlexibleId(id) {
+  const attachment = await db.attachments.get(id)
+  if (attachment) return attachment
+
+  const numericId = Number(id)
+  if (Number.isInteger(numericId) && `${numericId}` === `${id}`) {
+    return await db.attachments.get(numericId)
+  }
+
+  return null
+}
+
+async function repairAttachmentBlob(attachment) {
+  if (!attachment) return attachment
+
+  const normalized = await normalizeAttachmentRecord(attachment)
+  if (hasUsableAttachmentBlob(attachment) || !hasUsableAttachmentBlob(normalized)) {
+    return normalized
+  }
+
+  await db.attachments.put(normalized)
+  return normalized
 }
