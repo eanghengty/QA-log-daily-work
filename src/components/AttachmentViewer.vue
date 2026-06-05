@@ -15,6 +15,7 @@ const { getAttachmentsByIds } = useAttachments()
 const items = ref([])
 const activeIndex = ref(0)
 const loading = ref(false)
+const missingCount = ref(0)
 
 watch(
   () => props.modelValue,
@@ -23,11 +24,12 @@ watch(
       revokeAll()
       items.value = []
       activeIndex.value = 0
+      missingCount.value = 0
       return
     }
     loading.value = true
     const records = await getAttachmentsByIds(props.attachmentIds)
-    items.value = records
+    const usableItems = records
       .filter(Boolean)
       .filter(hasUsableAttachmentBlob)
       .map((att) => ({
@@ -35,6 +37,8 @@ watch(
         objectUrl: URL.createObjectURL(att.blob),
         isImage: att.type?.startsWith('image/'),
       }))
+    items.value = usableItems
+    missingCount.value = Math.max(0, props.attachmentIds.length - usableItems.length)
     loading.value = false
   }
 )
@@ -91,13 +95,25 @@ function next() {
           Loading…
         </div>
 
+        <div
+          v-if="!loading && missingCount > 0"
+          class="chip chip-issue"
+          style="align-items: flex-start; padding: 10px 12px; line-height: 1.35"
+        >
+          <MaterialIcon name="warning" :size="16" />
+          <span>
+            {{ missingCount }} attachment file{{ missingCount === 1 ? '' : 's' }} not stored on this device.
+            Reattach the field proof here, or restore a site backup that includes attachments.
+          </span>
+        </div>
+
         <!-- Empty -->
-        <div v-else-if="items.length === 0" class="small" style="color: var(--ink-3); text-align: center; padding: 24px 0">
-          No attachments found.
+        <div v-else-if="!loading && items.length === 0" class="small" style="color: var(--ink-3); text-align: center; padding: 24px 0">
+          No attachments attached yet.
         </div>
 
         <!-- Viewer -->
-        <template v-else>
+        <template v-if="!loading && items.length > 0">
           <div class="attachment-preview-area">
             <template v-if="items[activeIndex].isImage">
               <img

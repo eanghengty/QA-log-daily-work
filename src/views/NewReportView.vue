@@ -15,6 +15,7 @@ import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
 import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import AttachmentDropzone from '../components/AttachmentDropzone.vue'
+import AttachmentViewer from '../components/AttachmentViewer.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 
 const route = useRoute()
@@ -34,6 +35,7 @@ const { logAction } = useActivityLog()
 const today = new Date().toISOString().split('T')[0]
 const form = ref(emptyForm())
 const notesEditor = ref(null)
+const showViewer = ref(false)
 const initialPrefillNotes =
   !isEdit.value && typeof window !== 'undefined'
     ? String(window.history.state?.reportPrefillNotes || '')
@@ -348,7 +350,22 @@ function unwrapHighlight(mark) {
         </div>
 
         <div class="col gap-2">
-          <div class="label">Field proof (optional)</div>
+          <div class="between">
+            <div class="label">Field proof (optional)</div>
+            <div class="row gap-2" style="align-items: center">
+              <button
+                v-if="form.attachmentIds.length > 0"
+                type="button"
+                class="btn btn-ghost"
+                style="padding: 2px 8px; font-size: 12px"
+                @click="showViewer = true"
+              >
+                <MaterialIcon name="visibility" :size="15" />
+                View ({{ form.attachmentIds.length }})
+              </button>
+              <span class="tiny">drag in, paste, or click</span>
+            </div>
+          </div>
           <AttachmentDropzone v-model="form.attachmentIds" />
         </div>
       </div>
@@ -371,6 +388,8 @@ function unwrapHighlight(mark) {
         </div>
       </div>
     </div>
+
+    <AttachmentViewer v-model="showViewer" :attachment-ids="form.attachmentIds" />
   </div>
 </template>
 
