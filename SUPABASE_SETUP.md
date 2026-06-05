@@ -59,6 +59,16 @@ From the Supabase dashboard, copy:
 
 Put them in your local env file from `.env.example`.
 
+For GitHub Pages, add the same public frontend values as GitHub secrets before
+deploying from `main`:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+The Pages workflow passes those secrets into `npm run build`. If either secret
+is missing, the deploy job fails instead of publishing a local-only fallback
+build that skips the custom backend auth gate.
+
 ## 5. Enable Realtime
 
 Supabase Realtime presence uses websockets. No extra Postgres table is needed for the current presence lobby, but your project must have Realtime enabled in Supabase.
