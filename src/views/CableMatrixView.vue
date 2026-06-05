@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { CABLE_CHECK_STATUS, useCableMatrix } from '../composables/useCableMatrix.js'
 import { useCableMatrixLayout } from '../composables/useCableMatrixLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { getActivityActorLabel } from '../composables/useActivityActor.js'
 import {
   downloadCableMatrixExport,
   downloadCableMatrixTemplate,
@@ -793,6 +794,7 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
                 </span>
                 <span class="small" style="color: var(--ink)">{{ getStatusLogLabel(entry) }}</span>
               </div>
+              <div class="tiny" style="color: var(--ink-3)">By {{ getActivityActorLabel(entry) }}</div>
             </div>
           </div>
 

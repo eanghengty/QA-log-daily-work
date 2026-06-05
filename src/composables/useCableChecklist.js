@@ -9,6 +9,7 @@ import {
 } from '../lib/cloudBoardMirror.js'
 import { useLiveQuery } from './useLiveQuery.js'
 import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
+import { getCurrentActivityActor } from './useActivityActor.js'
 
 export function useCableChecklist(siteId) {
   setupCloudBoardMirror(siteId)
@@ -332,6 +333,7 @@ function createFieldHistoryEntry(field, fromValue, toValue) {
     field,
     fromValue: String(fromValue || '').trim(),
     toValue: String(toValue || '').trim(),
+    ...getCurrentActivityActor(),
     changedAt: new Date().toISOString(),
   }
 }

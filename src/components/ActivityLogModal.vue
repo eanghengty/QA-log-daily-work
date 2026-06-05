@@ -1,5 +1,6 @@
 <script setup>
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { getActivityActorLabel } from '../composables/useActivityActor.js'
 import MaterialIcon from './MaterialIcon.vue'
 
 defineProps({ modelValue: { type: Boolean, default: false } })
@@ -79,6 +80,7 @@ async function confirmClear() {
             <div class="col grow gap-1">
               <div style="font-size: 12px; font-weight: 600">{{ log.action }}</div>
               <div v-if="log.detail" class="tiny" style="color: var(--ink-2)">{{ log.detail }}</div>
+              <div class="tiny" style="color: var(--ink-3)">By {{ getActivityActorLabel(log) }}</div>
             </div>
             <div class="tiny" style="color: var(--ink-3); white-space: nowrap; flex-shrink: 0">{{ formatTime(log.at) }}</div>
           </div>

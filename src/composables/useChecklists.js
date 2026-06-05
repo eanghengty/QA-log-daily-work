@@ -13,6 +13,7 @@ import {
   saveCloudBoardMirror,
 } from '../lib/cloudBoardMirror.js'
 import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
+import { getCurrentActivityActor } from './useActivityActor.js'
 
 export const CHECKLIST_STATUS = {
   TODO: 'todo',
@@ -417,6 +418,7 @@ function createStatusHistoryEntry(fromStatus, toStatus) {
     id: createItemId(),
     fromStatus: normalizeStatus(fromStatus),
     toStatus: normalizeStatus(toStatus),
+    ...getCurrentActivityActor(),
     changedAt: new Date().toISOString(),
   }
 }

@@ -1,4 +1,5 @@
 import { db } from '../db/index.js'
+import { getCurrentActivityActor } from './useActivityActor.js'
 import { useLiveQuery } from './useLiveQuery.js'
 
 export function useActivityLog() {
@@ -10,6 +11,7 @@ export function useActivityLog() {
     await db.activityLog.add({
       action,
       detail,
+      ...getCurrentActivityActor(),
       at: new Date().toISOString(),
     })
   }

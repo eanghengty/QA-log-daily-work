@@ -1,5 +1,6 @@
 import { db, ensureLookupSeedData } from '../db/index.js'
 import { hasUsableAttachmentBlob, normalizeAttachmentRecord, normalizeAttachmentRecords } from './attachmentBlobs.js'
+import { uploadAttachmentToCloud } from '../composables/useAttachments.js'
 import { buildCloudBoardPayloads } from './cloudBoardMirror.js'
 import { isValidSiteId, toSafeSiteId, toSiteFileSlug } from './siteRouting.js'
 import {
@@ -520,11 +521,24 @@ async function serializeAttachments(attachments) {
 
 async function restoreAttachments(attachments) {
   const normalized = await normalizeAttachmentRecords(attachments)
-  return normalized.map((attachment) => {
+  const restored = normalized.map((attachment) => {
     if (!attachment || typeof attachment !== 'object') return attachment
     const { _blobType, ...rest } = attachment
     return rest
   })
+
+  if (isCloudTrackerEnabled()) {
+    await Promise.all(
+      restored
+        .filter(hasUsableAttachmentBlob)
+        .map((attachment) => uploadAttachmentToCloud(attachment).catch((error) => {
+          console.warn('Unable to upload restored attachment to cloud.', error)
+          return null
+        })),
+    )
+  }
+
+  return restored
 }
 
 function countUsableAttachments(attachments = []) {

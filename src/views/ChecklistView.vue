@@ -9,6 +9,7 @@ import {
 import { useSites } from '../composables/useSites.js'
 import { useChecklistLayout } from '../composables/useChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { getActivityActorLabel } from '../composables/useActivityActor.js'
 import {
   downloadChecklistExport,
   downloadChecklistTemplate,
@@ -1107,6 +1108,7 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
               <div class="tiny">
                 {{ getStatusLabel(entry.fromStatus) }} -> {{ getStatusLabel(entry.toStatus) }}
               </div>
+              <div class="tiny" style="color: var(--ink-3)">By {{ getActivityActorLabel(entry) }}</div>
             </div>
           </div>
 

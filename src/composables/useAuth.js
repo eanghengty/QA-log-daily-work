@@ -8,6 +8,7 @@ import {
   setStoredCustomSessionToken,
 } from '../lib/customAuthSession.js'
 import { syncTrackerSetupMirror } from '../lib/trackerCloud.js'
+import { syncLocalAttachmentsToCloud } from './useAttachments.js'
 
 const CUSTOM_AUTH_EVENT_KEY = 'qa_tracker_custom_auth_event'
 const SESSION_POLL_INTERVAL_MS = 5000
@@ -218,6 +219,9 @@ async function syncTrackerSetup(nextUser) {
 
   try {
     await syncTrackerSetupMirror()
+    void syncLocalAttachmentsToCloud().catch((error) => {
+      console.warn('Unable to sync local attachments with Supabase.', error)
+    })
     pendingLocalMigration.value = null
   } catch (error) {
     pendingLocalMigration.value = null

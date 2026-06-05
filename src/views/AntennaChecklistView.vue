@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useAntennaChecklistLayout } from '../composables/useAntennaChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { getActivityActorLabel } from '../composables/useActivityActor.js'
 import { shouldShowAntennaChecklist } from '../lib/siteScope.js'
 import { buildSitePath } from '../lib/siteRouting.js'
 import {
@@ -843,6 +844,7 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
                 </span>
                 <span class="small" style="color: var(--ink)">{{ getChangeLogLabel(entry) }}</span>
               </div>
+              <div class="tiny" style="color: var(--ink-3)">By {{ getActivityActorLabel(entry) }}</div>
             </div>
           </div>
 

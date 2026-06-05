@@ -8,6 +8,7 @@ import {
 } from '../lib/trackerCloud.js'
 import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 import { useLiveQuery } from './useLiveQuery.js'
+import { getCurrentActivityActor } from './useActivityActor.js'
 
 export const PENDING_SUMMARY_STATUS = {
   TODO: 'todo',
@@ -534,6 +535,9 @@ function normalizeActionHistory(entries) {
     fromStatus: normalizeStatus(entry.fromStatus),
     toStatus: normalizeStatus(entry.toStatus),
     comment: String(entry.comment || '').trim(),
+    userId: String(entry.userId || '').trim(),
+    userName: String(entry.userName || '').trim(),
+    userEmail: String(entry.userEmail || '').trim(),
     changedAt: entry.changedAt || new Date().toISOString(),
   }))
 }
@@ -605,6 +609,7 @@ function createActionHistoryEntry(fromStatus, toStatus, comment = '') {
     fromStatus: normalizeStatus(fromStatus),
     toStatus: normalizeStatus(toStatus),
     comment: String(comment || '').trim(),
+    ...getCurrentActivityActor(),
     changedAt: new Date().toISOString(),
   }
 }

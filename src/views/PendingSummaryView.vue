@@ -8,6 +8,7 @@ import {
 } from '../composables/usePendingSummary.js'
 import { useSites } from '../composables/useSites.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { getActivityActorLabel } from '../composables/useActivityActor.js'
 import { buildPendingSummaryProgressText } from '../lib/pendingSummaryExport.js'
 import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
@@ -757,6 +758,7 @@ function formatDateTime(value) {
               <div v-if="entry.comment" class="tiny" style="color: var(--ink-2)">
                 Comment: {{ entry.comment }}
               </div>
+              <div class="tiny" style="color: var(--ink-3)">By {{ getActivityActorLabel(entry) }}</div>
             </div>
           </div>
 

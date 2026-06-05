@@ -4,6 +4,7 @@ import Topbar from '../components/Topbar.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
 import { useAuth } from '../composables/useAuth.js'
 import { useAdminUsers } from '../composables/useAdminUsers.js'
+import { syncLocalAttachmentsToCloud } from '../composables/useAttachments.js'
 
 const ROLE_OPTIONS = [
   { value: 'member', label: 'Member' },
@@ -22,6 +23,9 @@ const form = ref({
   role: 'member',
 })
 const roleDrafts = ref({})
+const attachmentSyncBusy = ref(false)
+const attachmentSyncMessage = ref('')
+const attachmentSyncTone = ref('confirm')
 
 const subtitle = computed(() => 'Admin-only field-user setup and role assignment for the custom backend.')
 const totalAdmins = computed(() => (users.value || []).filter((entry) => entry.role === 'admin').length)
@@ -64,6 +68,24 @@ async function saveRole(userId) {
     syncRoleDrafts()
   } catch {
     // Feedback is already stored in the composable state.
+  }
+}
+
+async function syncBrowserAttachments() {
+  attachmentSyncBusy.value = true
+  attachmentSyncMessage.value = ''
+  attachmentSyncTone.value = 'confirm'
+
+  try {
+    const result = await syncLocalAttachmentsToCloud({ force: true })
+    attachmentSyncMessage.value =
+      `Attachment sync complete: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed.`
+    attachmentSyncTone.value = result.failed ? 'issue' : 'confirm'
+  } catch (err) {
+    attachmentSyncMessage.value = `Attachment sync failed: ${err.message || 'Unknown error'}`
+    attachmentSyncTone.value = 'issue'
+  } finally {
+    attachmentSyncBusy.value = false
   }
 }
 
@@ -138,6 +160,34 @@ watch(
         <div v-else-if="notice" class="chip chip-confirm">
           <MaterialIcon name="check_circle" :size="14" />
           {{ notice }}
+        </div>
+
+        <div class="box col gap-3" style="padding: 20px">
+          <div class="between gap-3" style="align-items: flex-start; flex-wrap: wrap">
+            <div class="col gap-1">
+              <div class="title-md">Attachment cloud sync</div>
+              <div class="small" style="color: var(--ink-2)">
+                Push field proof files stored in this browser to the shared backend so other signed-in users can preview them.
+              </div>
+              <div class="tiny" style="color: var(--ink-3)">
+                This only covers files available on this device. For files saved on another user's device, that user must sign in there or provide a JSON backup that includes attachments.
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary" :disabled="attachmentSyncBusy" @click="syncBrowserAttachments">
+              <span v-if="attachmentSyncBusy" class="btn-spinner" />
+              <MaterialIcon v-else name="cloud_upload" :size="16" />
+              Sync this browser
+            </button>
+          </div>
+
+          <div
+            v-if="attachmentSyncMessage"
+            class="chip"
+            :class="attachmentSyncTone === 'issue' ? 'chip-issue' : 'chip-confirm'"
+          >
+            <MaterialIcon :name="attachmentSyncTone === 'issue' ? 'error' : 'check_circle'" :size="14" />
+            {{ attachmentSyncMessage }}
+          </div>
         </div>
 
         <div class="box col gap-4" style="padding: 20px">

@@ -6,7 +6,8 @@ generates an email draft from each update. Supabase now provides custom backend 
 infrastructure, Edge Functions, CLI migrations, realtime presence, and cloud-backed site headers,
 lookup tables, progress updates, blockers, approvals, pending-summary records, document references,
 email settings, site checklist boards, cable matrix boards, and checklist-style asset boards.
-Attachments still live in IndexedDB today.
+New and restored attachments are cloud-backed through the custom backend, with IndexedDB kept as a
+local preview cache.
 
 ## Stack
 
@@ -42,11 +43,11 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 ### Data Layer (`src/db/`)
 
 - `index.js` defines the Dexie schema and `initDb()`.
-- Dexie remains the source of truth for attachments and activity log data, and it remains the
+- Dexie remains the source of truth for activity log data and the local cache for attachments, and it remains the
   reactive local mirror for cloud-backed records in the current app.
 - In custom-backend mode, `sites`, `scopes`, `confirmSources`, progress updates, blockers,
   approvals, pending summaries, document references, email settings, site checklist boards, cable
-  matrix boards, and checklist-style asset boards are mirrored locally for the existing UI, but
+  matrix boards, checklist-style asset boards, and new/restored attachments are mirrored locally for the existing UI, but
   their durable source of truth is the Supabase-backed Edge Function layer.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
   `checklists`, `checklistLayouts`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`,
@@ -83,8 +84,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   use `supabase.auth` browser sessions anymore.
 - `src/lib/trackerCloud.js` calls authenticated Edge Functions for cloud-backed site headers,
   scopes, confirmation sources, progress updates, blockers, approvals, pending summaries, document
-  references, email settings, checklist board payloads, backup restore, and local-to-cloud mirror
-  sync.
+  references, email settings, checklist board payloads, attachment upload/download, backup restore,
+  and local-to-cloud mirror sync.
 - `src/lib/cloudBoardMirror.js` keeps the checklist, cable matrix, antenna checklist, DCPL
   checklist, and cable checklist Dexie tables synchronized with Supabase `tracker_site_boards`
   payloads so the views can keep using live local mirrors.
@@ -98,14 +99,17 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - `supabase/functions/` contains the custom backend auth endpoints. Current auth endpoints are
   `auth-bootstrap-status`, `auth-create-first-user`, `auth-login`, `auth-session`,
   `auth-logout`, `auth-update-account`, `tracker-lookups`, `tracker-sites`, and `tracker-core`.
+  `tracker-attachments` stores and retrieves cloud-backed field proof files by attachment ID.
 - Current cloud auth schema includes `app_users` and `app_sessions` for custom backend login,
   plus `sites`, `site_scopes`, `confirm_sources`, `reports`, `issues`, `confirms`,
-  `pending_summaries`, `document_references`, `email_settings`, and `tracker_site_boards` for
-  tracker records moved off Dexie as the durable source of truth.
+  `pending_summaries`, `document_references`, `email_settings`, `tracker_site_boards`, and
+  `tracker_attachments` for tracker records moved off Dexie as the durable source of truth.
   Earlier foundation tables such as `profiles`, `organizations`, and `organization_members` may
   still exist from the prior Supabase-auth experiment, but the active login flow now uses the
   custom backend auth tables and functions instead.
-- Do not describe attachments as cloud-backed until they are actually migrated.
+- Attachments created or restored after the `tracker_attachments` migration are cloud-backed through
+  the `tracker-attachments` Edge Function. Older records that only saved local numeric attachment IDs
+  may still require the original local browser backup/restore path or a one-time reattach.
 
 ### Reactive Store (`src/composables/`)
 
@@ -137,7 +141,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   state and online-user presence.
 - Blocker and approval codes are generated per site by incrementing the highest existing
   `I-###` or `C-###` code.
-- `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB.
+- `useAttachments.js` stores `File` / `Blob` objects directly in IndexedDB for the local preview cache
+  and uploads/fetches cloud attachment payloads through `tracker-attachments` when Supabase is configured.
 - `useTrackerStats.js` derives overview totals from live IndexedDB data.
 
 ### Checklist Excel (`src/lib/checklistSpreadsheet.js`)
@@ -320,7 +325,10 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - **Checklist item IDs**: sub checklist items use generated local IDs inside the parent checklist
   record rather than their own Dexie table.
 - **Attachments**: store field proof through `AttachmentDropzone` / `useAttachments`; persist
-  attachment ID arrays as plain arrays, not Vue reactive proxies.
+  attachment ID arrays as plain arrays, not Vue reactive proxies. In Supabase mode, new attachment
+  IDs should be cloud IDs returned from the upload path so other signed-in users can preview them.
+  The admin Field Users page includes a manual `Sync this browser` attachment action, but it can only
+  upload blobs that exist in the current browser IndexedDB.
 - **Site import/export**: site-level import and export from the site dashboard must always cover
   updates, blockers, confirmations, site checklist, checklist custom columns, cable matrix,
   antenna checklist, DCPL checklist, cable checklist, pending summary, document references,
@@ -434,5 +442,9 @@ Then check the app in the browser:
 41. Site dashboard export includes checklist custom columns, document references, pending summary
     data, and the newer antenna, DCPL, and cable checklist data, and site import confirmation
     clearly describes the incoming counts before replacing current site data.
-42. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+42. A newly attached or JSON-restored field proof image can be viewed by another signed-in user on a
+    different browser after the attachment migration and `tracker-attachments` function are deployed.
+43. Admin Field Users -> `Sync this browser` uploads attachment blobs from the current browser cache
+    and reports uploaded / skipped / failed counts.
+44. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.

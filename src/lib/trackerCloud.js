@@ -380,6 +380,20 @@ export async function deleteCloudPendingSummary(siteId) {
   })
 }
 
+export async function uploadCloudAttachment(attachment) {
+  return await callTrackerFunction('tracker-attachments', {
+    action: 'upload',
+    attachment,
+  })
+}
+
+export async function getCloudAttachment(id) {
+  return await callTrackerFunction('tracker-attachments', {
+    action: 'get',
+    id,
+  })
+}
+
 export async function importCloudSiteCoreData({
   siteId,
   reports = [],
