@@ -1,7 +1,7 @@
 export async function normalizeAttachmentRecord(attachment) {
   if (!attachment || typeof attachment !== 'object') return attachment
 
-  const blob = await normalizeAttachmentBlob(attachment.blob, attachment)
+  const blob = await normalizeAttachmentBlobFromCandidates(attachment)
   if (!blob) return attachment
 
   const type = attachment.type || blob.type || attachment._blobType || ''
@@ -21,6 +21,26 @@ export async function normalizeAttachmentRecords(attachments = []) {
 
 export function hasUsableAttachmentBlob(attachment) {
   return attachment?.blob instanceof Blob
+}
+
+async function normalizeAttachmentBlobFromCandidates(attachment = {}) {
+  const candidates = [
+    attachment.blob,
+    attachment.dataUrl,
+    attachment.dataURL,
+    attachment.base64,
+    attachment.bytes,
+    attachment.content,
+    attachment.data,
+    attachment.file,
+  ]
+
+  for (const candidate of candidates) {
+    const blob = await normalizeAttachmentBlob(candidate, attachment)
+    if (blob) return blob
+  }
+
+  return null
 }
 
 async function normalizeAttachmentBlob(value, attachment = {}) {

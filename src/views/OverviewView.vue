@@ -10,6 +10,7 @@ import AddSiteModal from '../components/AddSiteModal.vue'
 import { exportBackup, importBackup } from '../lib/backup.js'
 import { buildSitePath } from '../lib/siteRouting.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { refreshCloudBackedTrackerData } from '../composables/useRealtime.js'
 
 const router = useRouter()
 const { logAction } = useActivityLog()
@@ -126,11 +127,15 @@ async function handleRestoreFile(event) {
   try {
     const text = await file.text()
     const result = await importBackup(text)
+    await refreshCloudBackedTrackerData('full-backup-restore')
     const remapDetail = formatSiteIdRemaps(result?.remappedSiteIds)
+    const attachmentDetail = formatAttachmentRestoreStatus(result)
     await logAction('Full backup restored', remapDetail)
-    restoreStatus.value = remapDetail
-      ? `Restore complete. Renamed legacy Site IDs: ${remapDetail}`
-      : 'Restore complete'
+    restoreStatus.value = [
+      'Restore complete.',
+      attachmentDetail,
+      remapDetail ? `Renamed legacy Site IDs: ${remapDetail}` : '',
+    ].filter(Boolean).join(' ')
     setTimeout(() => { restoreStatus.value = '' }, remapDetail ? 8000 : 3000)
   } catch (error) {
     restoreStatus.value = `Restore failed: ${error.message}`
@@ -144,6 +149,12 @@ function formatSiteIdRemaps(remappedSiteIds = []) {
   return remappedSiteIds
     .map((item) => `${item.from} -> ${item.to}`)
     .join(', ')
+}
+
+function formatAttachmentRestoreStatus(result = {}) {
+  if (!result.attachmentsExpected) return ''
+
+  return `${result.attachmentsRestored || 0}/${result.attachmentsExpected} attachment files restored.`
 }
 </script>
 

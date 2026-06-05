@@ -1,5 +1,5 @@
 import { db, ensureLookupSeedData } from '../db/index.js'
-import { normalizeAttachmentRecord, normalizeAttachmentRecords } from './attachmentBlobs.js'
+import { hasUsableAttachmentBlob, normalizeAttachmentRecord, normalizeAttachmentRecords } from './attachmentBlobs.js'
 import { buildCloudBoardPayloads } from './cloudBoardMirror.js'
 import { isValidSiteId, toSafeSiteId, toSiteFileSlug } from './siteRouting.js'
 import {
@@ -237,6 +237,8 @@ export async function importSite(jsonOrObject) {
   return {
     siteId,
     remappedSiteIds: data._remappedSiteIds || [],
+    attachmentsRestored: countUsableAttachments(attachmentsRestored),
+    attachmentsExpected: (data.attachments || []).length,
   }
 }
 
@@ -322,6 +324,8 @@ export async function importBackup(jsonOrObject) {
 
   return {
     remappedSiteIds: data._remappedSiteIds || [],
+    attachmentsRestored: countUsableAttachments(attachmentsRestored),
+    attachmentsExpected: (data.attachments || []).length,
   }
 }
 
@@ -521,6 +525,10 @@ async function restoreAttachments(attachments) {
     const { _blobType, ...rest } = attachment
     return rest
   })
+}
+
+function countUsableAttachments(attachments = []) {
+  return attachments.filter(hasUsableAttachmentBlob).length
 }
 
 function blobToBase64(blob) {

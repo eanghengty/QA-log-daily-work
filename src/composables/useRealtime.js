@@ -49,7 +49,7 @@ async function disconnectRealtime() {
   connectionStatus.value = 'idle'
 }
 
-async function refreshCloudBackedTrackerData(reason = 'remote-change') {
+export async function refreshCloudBackedTrackerData(reason = 'remote-change') {
   if (!isSupabaseConfigured) return
 
   const now = Date.now()

@@ -18,6 +18,7 @@ import { buildSitePath } from '../lib/siteRouting.js'
 import { shouldShowAntennaChecklist, shouldShowDcplChecklist } from '../lib/siteScope.js'
 import { exportSiteWorkbook } from '../lib/siteWorkbookSpreadsheet.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
+import { refreshCloudBackedTrackerData } from '../composables/useRealtime.js'
 import DocumentReferenceModal from '../components/DocumentReferenceModal.vue'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
@@ -257,9 +258,14 @@ Your current data will be exported first as a backup. Continue?`)) return
 
   try {
     await exportSite(siteId)
-    await importSite(data)
-    await logAction('Site imported', `${siteId} ??? ${site.value?.name || ''}`)
-    siteStatus.value = `Imported successfully ??? ${importSummary}. Current data was backed up first.`
+    const result = await importSite(data)
+    await refreshCloudBackedTrackerData('site-import')
+    await logAction('Site imported', `${siteId} - ${site.value?.name || ''}`)
+    siteStatus.value = [
+      'Imported successfully.',
+      formatAttachmentRestoreStatus(result),
+      'Current data was backed up first.',
+    ].filter(Boolean).join(' ')
     setTimeout(() => { siteStatus.value = '' }, 4000)
   } catch (err) {
     siteStatus.value = `Import failed: ${err.message}`
@@ -286,6 +292,12 @@ function formatDate(dateString) {
 
 function formatCountLength(value) {
   return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 2) : '0'
+}
+
+function formatAttachmentRestoreStatus(result = {}) {
+  if (!result.attachmentsExpected) return ''
+
+  return `${result.attachmentsRestored || 0}/${result.attachmentsExpected} attachment files restored.`
 }
 
 function reportNotesPreviewHtml(report) {
