@@ -2,9 +2,11 @@
 
 A telecom site progress tracker. A field coordinator tracks physical telecom
 sites, logs daily progress updates, blockers, approvals / sign-offs, and field proof, then
-generates an email draft from each update. Tracker records still live in IndexedDB today, while
-Supabase now provides custom backend auth infrastructure, Edge Functions, CLI migrations, and
-realtime presence as the first step of the cloud migration.
+generates an email draft from each update. Supabase now provides custom backend auth
+infrastructure, Edge Functions, CLI migrations, realtime presence, and cloud-backed site headers,
+lookup tables, progress updates, blockers, approvals, pending-summary records, document references,
+email settings, site checklist boards, cable matrix boards, and checklist-style asset boards.
+Attachments still live in IndexedDB today.
 
 ## Stack
 
@@ -40,8 +42,12 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 ### Data Layer (`src/db/`)
 
 - `index.js` defines the Dexie schema and `initDb()`.
-- Dexie remains the source of truth for sites, progress updates, blockers, approvals, checklists,
-  pending summary data, attachments, and site import/export in the current app.
+- Dexie remains the source of truth for attachments and activity log data, and it remains the
+  reactive local mirror for cloud-backed records in the current app.
+- In custom-backend mode, `sites`, `scopes`, `confirmSources`, progress updates, blockers,
+  approvals, pending summaries, document references, email settings, site checklist boards, cable
+  matrix boards, and checklist-style asset boards are mirrored locally for the existing UI, but
+  their durable source of truth is the Supabase-backed Edge Function layer.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
   `checklists`, `checklistLayouts`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`,
   `cableChecklists`, `documentReferences`, `pendingSummaries`, plus supporting lookup/activity tables already in the app.
@@ -75,28 +81,38 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - `src/lib/supabase.js` creates the browser Supabase client from `VITE_SUPABASE_URL` and
   `VITE_SUPABASE_ANON_KEY`. The browser client is for Edge Functions and Realtime; it does not
   use `supabase.auth` browser sessions anymore.
+- `src/lib/trackerCloud.js` calls authenticated Edge Functions for cloud-backed site headers,
+  scopes, confirmation sources, progress updates, blockers, approvals, pending summaries, document
+  references, email settings, checklist board payloads, backup restore, and local-to-cloud mirror
+  sync.
+- `src/lib/cloudBoardMirror.js` keeps the checklist, cable matrix, antenna checklist, DCPL
+  checklist, and cable checklist Dexie tables synchronized with Supabase `tracker_site_boards`
+  payloads so the views can keep using live local mirrors.
 - `src/composables/useAuth.js` owns custom backend auth bootstrap, first-account detection,
   session restore, sign-in, first-account creation, sign-out, account update, local session-token
-  storage, and session-replacement handling.
+  storage, session-replacement handling, and site/scope/source mirror sync after sign-in.
 - `src/composables/useRealtime.js` owns the websocket-backed Supabase Realtime presence channel
   (`qa-tracker:lobby`) used by the shell.
 - `supabase/config.toml` and `supabase/migrations/` are the source of truth for Supabase CLI
   project setup and cloud schema migrations.
 - `supabase/functions/` contains the custom backend auth endpoints. Current auth endpoints are
   `auth-bootstrap-status`, `auth-create-first-user`, `auth-login`, `auth-session`,
-  `auth-logout`, and `auth-update-account`.
-- Current cloud auth schema includes `app_users` and `app_sessions` for custom backend login.
+  `auth-logout`, `auth-update-account`, `tracker-lookups`, `tracker-sites`, and `tracker-core`.
+- Current cloud auth schema includes `app_users` and `app_sessions` for custom backend login,
+  plus `sites`, `site_scopes`, `confirm_sources`, `reports`, `issues`, `confirms`,
+  `pending_summaries`, `document_references`, `email_settings`, and `tracker_site_boards` for
+  tracker records moved off Dexie as the durable source of truth.
   Earlier foundation tables such as `profiles`, `organizations`, and `organization_members` may
   still exist from the prior Supabase-auth experiment, but the active login flow now uses the
   custom backend auth tables and functions instead.
-- Do not describe the main tracker tables as cloud-backed until they are actually migrated.
+- Do not describe attachments as cloud-backed until they are actually migrated.
 
 ### Reactive Store (`src/composables/`)
 
 - `useLiveQuery.js` wraps `Dexie.liveQuery` in Vue refs and auto-unsubscribes.
 - `useSites.js` exposes sites with derived open-blocker and approval counts, plus site CRUD.
-- `useReports.js`, `useIssues.js`, and `useConfirms.js` expose per-site CRUD plus reactive
-  single-record helpers for edit views.
+- `useReports.js`, `useIssues.js`, and `useConfirms.js` expose Supabase-backed per-site CRUD plus
+  reactive local mirrors and single-record helpers for edit views.
 - `useChecklists.js` owns per-site main checklist CRUD, sub checklist CRUD, summary counts,
   custom field persistence, Excel import merge logic, drag reorder persistence, and
   duplicate-name protection.
@@ -111,10 +127,10 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - `useCableChecklist.js` owns per-site cable checklist CRUD, summary counts, Excel import,
   drag reorder persistence, cable-length totals, date handling for `sweepTestReceived`, and
   row-level change logging.
-- `usePendingSummary.js` owns per-site pending summary generation from pasted text, nested
-  main-list / sub-list / item persistence, manual add and delete actions for all three layers,
-  summary counts, partial-done comment capture, under-checking flags, export-to-progress-update
-  formatting, and per-item status action history.
+- `usePendingSummary.js` owns Supabase-backed per-site pending summary generation from pasted text,
+  nested main-list / sub-list / item persistence, manual add and delete actions for all three
+  layers, summary counts, partial-done comment capture, under-checking flags,
+  export-to-progress-update formatting, and per-item status action history.
 - `useAuth.js` is a shared singleton-style auth store; components use it for the current user,
   session state, account updates, first-account bootstrap state, and auth feedback.
 - `useRealtime.js` is a shared singleton-style realtime store; components use it for connection
@@ -164,6 +180,10 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   user exactly what the incoming file contains before replacing current site data.
 - `importSite()` must restore all of those tables for the selected site, not just the original
   checklist and cable matrix data.
+- In custom-backend mode, full backup restore replaces Supabase-backed lookup/site tables and then
+  restores cloud-backed progress updates, blockers, approvals, pending summaries, document
+  references, email settings, and checklist board payloads for each restored site. IndexedDB-only
+  tables still restore locally.
 
 ### Email (`src/lib/email.js`)
 
@@ -295,8 +315,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - **Pending summary history**: todo / partial / done changes must record action dates in the item
   history so the user can review when it changed, including saved partial-done comments.
 - **Approvals**: saving an approval requires at least one attachment.
-- **IDs**: `sites` use slug strings; `reports`, `issues`, `confirms`, and `attachments`
-  auto-increment.
+- **IDs**: `sites` use slug strings; cloud-backed `reports`, `issues`, and `confirms` use
+  Supabase UUID strings in custom-backend mode; local-only attachment IDs still auto-increment.
 - **Checklist item IDs**: sub checklist items use generated local IDs inside the parent checklist
   record rather than their own Dexie table.
 - **Attachments**: store field proof through `AttachmentDropzone` / `useAttachments`; persist

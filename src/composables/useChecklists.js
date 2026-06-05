@@ -1,10 +1,18 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { db } from '../db/index.js'
 import { useLiveQuery } from './useLiveQuery.js'
 import {
   normalizeChecklistCustomColumns,
   normalizeChecklistFieldValue,
 } from '../lib/checklistColumns.js'
+import {
+  createCloudMirrorRecordId,
+  ensureCloudBoardMirror,
+  isCloudBoardMirrorEnabled,
+  localRecordKey,
+  saveCloudBoardMirror,
+} from '../lib/cloudBoardMirror.js'
+import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 
 export const CHECKLIST_STATUS = {
   TODO: 'todo',
@@ -13,6 +21,8 @@ export const CHECKLIST_STATUS = {
 }
 
 export function useChecklists(siteId) {
+  setupCloudBoardMirror(siteId)
+
   const { data: checklists } = useLiveQuery(() =>
     db.checklists.where('siteId').equals(siteId).sortBy('order')
   )
@@ -26,7 +36,8 @@ export function useChecklists(siteId) {
     const nextOrder =
       siteChecklists.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
 
-    return await db.checklists.add({
+    const record = {
+      ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
       siteId: checklist.siteId,
       title: checklist.title.trim(),
       description: checklist.description?.trim() || '',
@@ -34,22 +45,28 @@ export function useChecklists(siteId) {
       items: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
+    }
+    const id = await db.checklists.add(record)
+    await persistCloudBoard(siteId, 'site-checklist-added')
+    return id
   }
 
   async function updateChecklist(id, updates) {
-    return await db.checklists.update(id, {
+    const result = await db.checklists.update(localRecordKey(id), {
       ...updates,
       updatedAt: new Date().toISOString(),
     })
+    await persistCloudBoard(siteId, 'site-checklist-updated')
+    return result
   }
 
   async function deleteChecklist(id) {
-    await db.checklists.delete(id)
+    await db.checklists.delete(localRecordKey(id))
+    await persistCloudBoard(siteId, 'site-checklist-deleted')
   }
 
   async function renameChecklist(id, title) {
-    const checklist = await db.checklists.get(Number(id))
+    const checklist = await db.checklists.get(localRecordKey(id))
     if (!checklist) return
 
     await assertChecklistTitleUnique(checklist.siteId, title, checklist.id)
@@ -57,7 +74,7 @@ export function useChecklists(siteId) {
   }
 
   async function addSubItem(checklistId, title, customColumns = []) {
-    const checklist = await db.checklists.get(Number(checklistId))
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
 
     const items = [
@@ -76,7 +93,7 @@ export function useChecklists(siteId) {
   }
 
   async function updateSubItem(checklistId, itemId, updates) {
-    const checklist = await db.checklists.get(Number(checklistId))
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
 
     const items = (checklist.items || []).map((item) =>
@@ -91,7 +108,7 @@ export function useChecklists(siteId) {
   }
 
   async function setSubItemStatus(checklistId, itemId, status) {
-    const checklist = await db.checklists.get(Number(checklistId))
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
 
     const nextStatus = normalizeStatus(status)
@@ -121,7 +138,7 @@ export function useChecklists(siteId) {
   }
 
   async function setSubItemFieldValue(checklistId, itemId, column, value) {
-    const checklist = await db.checklists.get(Number(checklistId))
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
 
     const items = (checklist.items || []).map((item) => {
@@ -140,7 +157,7 @@ export function useChecklists(siteId) {
   }
 
   async function deleteSubItem(checklistId, itemId) {
-    const checklist = await db.checklists.get(Number(checklistId))
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
 
     const items = (checklist.items || []).filter((item) => item.id !== itemId)
@@ -220,6 +237,9 @@ export function useChecklists(siteId) {
           updatedAt: new Date().toISOString(),
         }
 
+        if (isCloudBoardMirrorEnabled()) {
+          newChecklist.id = createCloudMirrorRecordId()
+        }
         const insertedId = await db.checklists.add(newChecklist)
         checklistMap.set(normalizeKey(title), { ...newChecklist, id: insertedId })
         nextOrder += 1
@@ -228,13 +248,14 @@ export function useChecklists(siteId) {
       }
     })
 
+    await persistCloudBoard(siteId, 'site-checklists-imported')
     return summary
   }
 
   async function reorderChecklists(orderedIds) {
     const ids = orderedIds
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id))
+      .map((id) => localRecordKey(id))
+      .filter((id) => id !== null && id !== undefined && id !== '')
 
     if (!ids.length) return
 
@@ -246,10 +267,11 @@ export function useChecklists(siteId) {
         })
       }
     })
+    await persistCloudBoard(siteId, 'site-checklists-reordered')
   }
 
   async function duplicateChecklist(id, newTitle) {
-    const checklist = await db.checklists.get(Number(id))
+    const checklist = await db.checklists.get(localRecordKey(id))
     if (!checklist) return
 
     await assertChecklistTitleUnique(checklist.siteId, newTitle)
@@ -258,7 +280,8 @@ export function useChecklists(siteId) {
     const nextOrder =
       siteChecklists.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
 
-    return await db.checklists.add({
+    const record = {
+      ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
       siteId: checklist.siteId,
       title: newTitle.trim(),
       description: checklist.description || '',
@@ -273,7 +296,10 @@ export function useChecklists(siteId) {
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
+    }
+    const newId = await db.checklists.add(record)
+    await persistCloudBoard(siteId, 'site-checklist-duplicated')
+    return newId
   }
 
   async function removeCustomColumnValues(columnId) {
@@ -298,6 +324,7 @@ export function useChecklists(siteId) {
         await updateChecklist(checklist.id, { items })
       }
     })
+    await persistCloudBoard(siteId, 'site-checklist-custom-columns-updated')
   }
 
   return {
@@ -318,6 +345,23 @@ export function useChecklists(siteId) {
     duplicateChecklist,
     removeCustomColumnValues,
   }
+}
+
+function setupCloudBoardMirror(siteId) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  void ensureCloudBoardMirror('siteChecklist', siteId)
+  const { trackerSyncRefreshToken } = useRealtime()
+  watch(trackerSyncRefreshToken, () => {
+    void ensureCloudBoardMirror('siteChecklist', siteId, { force: true })
+  })
+}
+
+async function persistCloudBoard(siteId, eventName) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  await saveCloudBoardMirror('siteChecklist', siteId)
+  await broadcastTrackerChange(eventName)
 }
 
 export function summarizeChecklists(checklists) {

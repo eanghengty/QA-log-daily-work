@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { db } from '../db/index.js'
+import { initAuth, useAuth } from '../composables/useAuth.js'
 import { shouldShowAntennaChecklist, shouldShowDcplChecklist } from '../lib/siteScope.js'
 
 async function blockAntennaChecklistRoute(to) {
@@ -18,11 +19,28 @@ async function blockDcplChecklistRoute(to) {
   return true
 }
 
+async function blockAdminRoute() {
+  await initAuth()
+
+  const { authEnabled, isAdmin } = useAuth()
+  if (!authEnabled.value || !isAdmin.value) {
+    return { name: 'overview' }
+  }
+
+  return true
+}
+
 const routes = [
   {
     path: '/',
     name: 'overview',
     component: () => import('../views/OverviewView.vue'),
+  },
+  {
+    path: '/admin/users',
+    name: 'admin-users',
+    component: () => import('../views/UserManagementView.vue'),
+    beforeEnter: blockAdminRoute,
   },
   {
     path: '/site/new',

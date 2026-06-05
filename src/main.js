@@ -1,17 +1,13 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router/index.js'
-import { initDb } from './db/index.js'
-import { initAuth } from './composables/useAuth.js'
-import { initRealtime } from './composables/useRealtime.js'
+import { startAppStartup } from './composables/useAppStartup.js'
 import './assets/main.css'
 
-async function start() {
-  await Promise.all([initDb(), initAuth()])
-  initRealtime()
-  const app = createApp(App)
-  app.use(router)
-  app.mount('#app')
-}
+const app = createApp(App)
+app.use(router)
+app.mount('#app')
 
-start()
+void startAppStartup().catch(() => {
+  // The app shell stays mounted and renders the startup error state.
+})

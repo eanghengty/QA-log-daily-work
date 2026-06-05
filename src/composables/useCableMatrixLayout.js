@@ -1,13 +1,21 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { db } from '../db/index.js'
+import {
+  ensureCloudBoardMirror,
+  isCloudBoardMirrorEnabled,
+  saveCloudBoardMirror,
+} from '../lib/cloudBoardMirror.js'
 import { useLiveQuery } from './useLiveQuery.js'
 import {
   createChecklistColumnId,
   normalizeChecklistColumnType,
   normalizeChecklistCustomColumns,
 } from '../lib/checklistColumns.js'
+import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 
 export function useCableMatrixLayout(siteId) {
+  setupCloudBoardMirror(siteId)
+
   const { data: layout } = useLiveQuery(() => db.cableMatrixLayouts.get(siteId))
 
   const customColumns = computed(() =>
@@ -73,6 +81,7 @@ export function useCableMatrixLayout(siteId) {
       customColumns: normalizeChecklistCustomColumns(columns),
       updatedAt: new Date().toISOString(),
     })
+    await persistCloudBoard(siteId, 'cable-matrix-layout-updated')
   }
 
   return {
@@ -82,4 +91,21 @@ export function useCableMatrixLayout(siteId) {
     removeCustomColumn,
     mergeImportedCustomColumns,
   }
+}
+
+function setupCloudBoardMirror(siteId) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  void ensureCloudBoardMirror('cableMatrix', siteId)
+  const { trackerSyncRefreshToken } = useRealtime()
+  watch(trackerSyncRefreshToken, () => {
+    void ensureCloudBoardMirror('cableMatrix', siteId, { force: true })
+  })
+}
+
+async function persistCloudBoard(siteId, eventName) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  await saveCloudBoardMirror('cableMatrix', siteId)
+  await broadcastTrackerChange(eventName)
 }

@@ -95,11 +95,11 @@ async function save(options = {}) {
   }
 
   const savedId = isEdit.value
-    ? Number(reportId.value)
+    ? reportId.value
     : await addReport(payload)
 
   if (isEdit.value) {
-    await updateReport(Number(reportId.value), payload)
+    await updateReport(reportId.value, payload)
     await logAction('Progress update edited', `${payload.date} — ${siteId}`)
   } else {
     await logAction('Progress update created', `${payload.date} — ${siteId}`)

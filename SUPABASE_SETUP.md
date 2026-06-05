@@ -69,19 +69,21 @@ The current channel name is:
 qa-tracker:lobby
 ```
 
-## 6. What this does not migrate yet
+## 6. Cloud-backed tracker data
 
-The app still reads and writes actual tracker data from IndexedDB through Dexie:
+The current Supabase migrations now cover:
 
-- sites
-- updates
-- blockers
-- approvals
-- checklist boards
-- pending summary
-- attachments
+- custom backend auth tables
+- site headers
+- site scopes
+- confirmation sources
+- core cloud tables for reports, blockers, approvals, email settings, and document references
+- pending summaries
+- site checklist, cable matrix, antenna checklist, DCPL checklist, and cable checklist board payloads
 
-This pass only adds the user/session foundation and websocket presence layer so the full table migration can happen in controlled steps.
+IndexedDB still provides the reactive local mirror used by the Vue views, and attachments remain IndexedDB-only until file storage is migrated.
+
+Deploy `tracker-core` after applying migrations so the new board actions are available to the frontend.
 
 ## 7. Recommended next implementation step
 
@@ -91,6 +93,6 @@ Move one domain at a time instead of all tables at once:
 2. sites
 3. updates / blockers / approvals
 4. attachments to Supabase Storage
-5. board tables and pending summary
+5. any remaining row-level normalization after the JSON board payloads are stable
 
 Use `SUPABASE_MIGRATION.md` for the target schema strategy.

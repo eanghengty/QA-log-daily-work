@@ -1,13 +1,18 @@
 import { computed, ref, watch } from 'vue'
 import { isSupabaseConfigured, supabase } from '../lib/supabase.js'
+import { refreshTrackerSetupMirror } from '../lib/trackerCloud.js'
 import { useAuth } from './useAuth.js'
 
 const connectionStatus = ref(isSupabaseConfigured ? 'idle' : 'disabled')
 const onlineUsers = ref([])
+const trackerSyncRefreshToken = ref(0)
 
 let channel = null
 let currentIdentityKey = ''
 let bridgeStarted = false
+let lastTrackerSyncRefreshAt = 0
+
+const TRACKER_SYNC_EVENT = 'tracker-sync'
 
 function normalizePresenceMembers(state) {
   return Object.values(state || {})
@@ -44,6 +49,21 @@ async function disconnectRealtime() {
   connectionStatus.value = 'idle'
 }
 
+async function refreshCloudBackedTrackerData(reason = 'remote-change') {
+  if (!isSupabaseConfigured) return
+
+  const now = Date.now()
+  if (now - lastTrackerSyncRefreshAt < 500) return
+  lastTrackerSyncRefreshAt = now
+
+  try {
+    await refreshTrackerSetupMirror()
+    trackerSyncRefreshToken.value += 1
+  } catch (error) {
+    console.warn(`Unable to refresh tracker data after ${reason}.`, error)
+  }
+}
+
 async function connectRealtimePresence(identity) {
   if (!supabase) return
 
@@ -66,6 +86,10 @@ async function connectRealtimePresence(identity) {
     .on('presence', { event: 'sync' }, () => {
       onlineUsers.value = normalizePresenceMembers(channel?.presenceState?.() || {})
     })
+    .on('broadcast', { event: TRACKER_SYNC_EVENT }, (payload) => {
+      if (payload?.payload?.senderId === identity.userId) return
+      void refreshCloudBackedTrackerData(payload?.payload?.reason || 'broadcast')
+    })
 
   channel.subscribe(async (status) => {
     connectionStatus.value = mapChannelStatus(status)
@@ -83,6 +107,24 @@ async function connectRealtimePresence(identity) {
       onlineUsers.value = []
     }
   })
+}
+
+export async function broadcastTrackerChange(reason = 'tracker-change') {
+  if (!channel || connectionStatus.value !== 'connected') return
+
+  try {
+    await channel.send({
+      type: 'broadcast',
+      event: TRACKER_SYNC_EVENT,
+      payload: {
+        reason,
+        senderId: currentIdentityKey.split(':')[0] || '',
+        sentAt: new Date().toISOString(),
+      },
+    })
+  } catch (error) {
+    console.warn('Unable to broadcast tracker change.', error)
+  }
 }
 
 export function initRealtime() {
@@ -140,6 +182,7 @@ export function useRealtime() {
     connectionLabel,
     onlineUsers,
     onlineCount,
+    trackerSyncRefreshToken,
     disconnectRealtime,
   }
 }

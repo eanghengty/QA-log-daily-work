@@ -15,7 +15,7 @@ import { useRealtime } from '../composables/useRealtime.js'
 
 const { sites } = useSites()
 const { scopes } = useScopes()
-const { authEnabled, user, currentDisplayName, profileSyncReady } = useAuth()
+const { authEnabled, user, isAdmin, currentDisplayName, profileSyncReady } = useAuth()
 const { connectionStatus, onlineCount } = useRealtime()
 const route = useRoute()
 const router = useRouter()
@@ -62,6 +62,10 @@ function goToAddSite() {
 
 function goToHome() {
   router.push('/')
+}
+
+function goToUserManagement() {
+  router.push('/admin/users')
 }
 
 const realtimeChipClass = computed(() => {
@@ -178,6 +182,16 @@ const realtimeLabel = computed(() => {
       >
         <MaterialIcon name="fact_check" :size="14" style="color: var(--ink-3)" />
         <span class="tiny" style="color: var(--ink-3)">Confirmation sources</span>
+      </button>
+      <button
+        v-if="isAdmin"
+        type="button"
+        class="px-4"
+        style="background: transparent; border: 0; cursor: pointer; text-align: left; width: 100%; padding-bottom: 12px; display: flex; align-items: center; gap: 6px"
+        @click="goToUserManagement"
+      >
+        <MaterialIcon name="admin_panel_settings" :size="14" style="color: var(--ink-3)" />
+        <span class="tiny" style="color: var(--ink-3)">Field users</span>
       </button>
       <div v-if="authEnabled" class="p-4" style="padding-top: 0">
         <button

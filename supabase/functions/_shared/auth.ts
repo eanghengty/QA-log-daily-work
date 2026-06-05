@@ -95,6 +95,19 @@ export function requirePassword(value: unknown) {
   return password
 }
 
+export function requireRole(value: unknown) {
+  const role = `${value || ''}`.trim().toLowerCase()
+  if (!role) {
+    throw new ApiError(400, 'ROLE_REQUIRED', 'Role is required.')
+  }
+
+  if (!['admin', 'manager', 'member'].includes(role)) {
+    throw new ApiError(400, 'ROLE_INVALID', 'Role must be admin, manager, or member.')
+  }
+
+  return role
+}
+
 export function requireSessionToken(req: Request) {
   const authorization = req.headers.get('authorization') || ''
   if (authorization.toLowerCase().startsWith('bearer ')) {
@@ -230,6 +243,12 @@ export async function loadSessionContext(req: Request) {
   }
 
   return { admin, token, tokenHash, session, user }
+}
+
+export function requireAdminUser(user: Record<string, unknown>) {
+  if (`${user?.role || ''}` !== 'admin') {
+    throw new ApiError(403, 'ADMIN_REQUIRED', 'Only admin field users can manage accounts.')
+  }
 }
 
 export async function markSessionSeen(admin: ReturnType<typeof createClient>, sessionId: string, userId: string, clientId: string) {

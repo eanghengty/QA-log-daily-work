@@ -1,8 +1,14 @@
 import { computed, ref } from 'vue'
-import { supabaseAnonKey, supabaseUrl, isSupabaseConfigured } from '../lib/supabase.js'
-import { clearLocalTrackerData, exportBackup, getLocalMigrationSummary } from '../lib/backup.js'
+import { isSupabaseConfigured } from '../lib/supabase.js'
+import { callCustomAuthFunction } from '../lib/customAuthApi.js'
+import {
+  clearStoredCustomSessionToken,
+  CUSTOM_SESSION_STORAGE_KEY,
+  getStoredCustomSessionToken,
+  setStoredCustomSessionToken,
+} from '../lib/customAuthSession.js'
+import { syncTrackerSetupMirror } from '../lib/trackerCloud.js'
 
-const CUSTOM_SESSION_STORAGE_KEY = 'qa_tracker_custom_session_token'
 const CUSTOM_AUTH_EVENT_KEY = 'qa_tracker_custom_auth_event'
 const SESSION_POLL_INTERVAL_MS = 5000
 
@@ -32,6 +38,9 @@ let storageBridgeStarted = false
 let visibilityBridgeStarted = false
 
 function safeSessionStorageGet(key) {
+  if (key === CUSTOM_SESSION_STORAGE_KEY) {
+    return getStoredCustomSessionToken()
+  }
   if (typeof window === 'undefined') return ''
 
   try {
@@ -42,6 +51,10 @@ function safeSessionStorageGet(key) {
 }
 
 function safeSessionStorageSet(key, value) {
+  if (key === CUSTOM_SESSION_STORAGE_KEY) {
+    setStoredCustomSessionToken(value)
+    return
+  }
   if (typeof window === 'undefined') return
 
   try {
@@ -52,6 +65,10 @@ function safeSessionStorageSet(key, value) {
 }
 
 function safeSessionStorageRemove(key) {
+  if (key === CUSTOM_SESSION_STORAGE_KEY) {
+    clearStoredCustomSessionToken()
+    return
+  }
   if (typeof window === 'undefined') return
 
   try {
@@ -166,37 +183,6 @@ function buildSessionFailureNotice(error) {
   return error?.message || 'Unable to restore the signed-in session.'
 }
 
-async function callAuthEndpoint(endpointName, { token = '', body = {} } = {}) {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    const error = new Error('Custom backend auth is not configured.')
-    error.code = 'AUTH_CONFIG_MISSING'
-    throw error
-  }
-
-  const response = await fetch(`${supabaseUrl}/functions/v1/${endpointName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: supabaseAnonKey,
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  })
-
-  const payload = await response
-    .json()
-    .catch(() => ({}))
-
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Request failed.')
-    error.status = response.status
-    error.code = payload.code || 'AUTH_REQUEST_FAILED'
-    throw error
-  }
-
-  return payload
-}
-
 async function refreshBootstrapStatus() {
   if (!authEnabled.value) {
     bootstrapStatus.value = {
@@ -208,7 +194,7 @@ async function refreshBootstrapStatus() {
   }
 
   try {
-    const data = await callAuthEndpoint('auth-bootstrap-status')
+    const data = await callCustomAuthFunction('auth-bootstrap-status')
     bootstrapStatus.value = {
       checked: true,
       hasUsers: Boolean(data.hasUsers),
@@ -224,18 +210,18 @@ async function refreshBootstrapStatus() {
   }
 }
 
-async function refreshPendingLocalMigration(nextUser) {
+async function syncTrackerSetup(nextUser) {
   if (!authEnabled.value || !nextUser?.id) {
     pendingLocalMigration.value = null
     return
   }
 
   try {
-    const summary = await getLocalMigrationSummary()
-    pendingLocalMigration.value = summary.hasData ? summary : null
+    await syncTrackerSetupMirror()
+    pendingLocalMigration.value = null
   } catch (error) {
     pendingLocalMigration.value = null
-    console.warn('Unable to inspect local IndexedDB data before opening the custom backend shell.', error)
+    console.warn('Unable to sync tracker setup data with Supabase.', error)
   }
 }
 
@@ -246,7 +232,7 @@ async function restoreSessionFromToken(token, { quiet = false } = {}) {
   }
 
   try {
-    const data = await callAuthEndpoint('auth-session', {
+    const data = await callCustomAuthFunction('auth-session', {
       token,
       body: {
         clientId: clientInstanceId,
@@ -258,7 +244,7 @@ async function restoreSessionFromToken(token, { quiet = false } = {}) {
       ...data,
     })
     startSessionPolling()
-    await refreshPendingLocalMigration(buildUser(data.user))
+    await syncTrackerSetup(buildUser(data.user))
     return true
   } catch (error) {
     const shouldShowNotice =
@@ -341,6 +327,7 @@ export async function initAuth() {
 
 export function useAuth() {
   const user = computed(() => session.value?.user ?? null)
+  const isAdmin = computed(() => authEnabled.value && user.value?.role === 'admin')
   const currentDisplayName = computed(() => {
     const profileName = `${profile.value?.full_name || ''}`.trim()
     const metadataName = `${user.value?.user_metadata?.full_name || ''}`.trim()
@@ -358,7 +345,7 @@ export function useAuth() {
     authNotice.value = ''
 
     try {
-      const data = await callAuthEndpoint('auth-login', {
+      const data = await callCustomAuthFunction('auth-login', {
         body: {
           email: `${email || ''}`.trim(),
           password,
@@ -373,7 +360,7 @@ export function useAuth() {
       })
       startSessionPolling()
       await refreshBootstrapStatus()
-      await refreshPendingLocalMigration(buildUser(data.user))
+      await syncTrackerSetup(buildUser(data.user))
       broadcastAuthEvent({
         type: 'login',
         userId: data.user?.id || '',
@@ -395,7 +382,7 @@ export function useAuth() {
     authNotice.value = ''
 
     try {
-      const data = await callAuthEndpoint('auth-create-first-user', {
+      const data = await callCustomAuthFunction('auth-create-first-user', {
         body: {
           email: `${email || ''}`.trim(),
           password,
@@ -411,7 +398,7 @@ export function useAuth() {
       })
       startSessionPolling()
       await refreshBootstrapStatus()
-      await refreshPendingLocalMigration(buildUser(data.user))
+      await syncTrackerSetup(buildUser(data.user))
       broadcastAuthEvent({
         type: 'login',
         userId: data.user?.id || '',
@@ -439,7 +426,7 @@ export function useAuth() {
     authNotice.value = ''
 
     try {
-      const data = await callAuthEndpoint('auth-update-account', {
+      const data = await callCustomAuthFunction('auth-update-account', {
         token: session.value.token,
         body: {
           fullName: `${fullName || ''}`.trim(),
@@ -471,7 +458,7 @@ export function useAuth() {
 
     try {
       if (activeToken) {
-        await callAuthEndpoint('auth-logout', { token: activeToken })
+        await callCustomAuthFunction('auth-logout', { token: activeToken })
       }
     } catch (error) {
       console.warn('Custom backend sign-out cleanup failed.', error)
@@ -484,28 +471,6 @@ export function useAuth() {
           userId: signedOutUserId,
         })
       }
-      isBusy.value = false
-    }
-  }
-
-  async function completeLocalMigration({ downloadBackup }) {
-    if (!user.value) return
-
-    isBusy.value = true
-    authError.value = ''
-    authNotice.value = ''
-
-    try {
-      if (downloadBackup) {
-        await exportBackup()
-      }
-
-      await clearLocalTrackerData()
-      pendingLocalMigration.value = null
-    } catch (error) {
-      authError.value = error.message || 'Unable to finish the local data migration step.'
-      throw error
-    } finally {
       isBusy.value = false
     }
   }
@@ -523,6 +488,7 @@ export function useAuth() {
     authNotice,
     session,
     user,
+    isAdmin,
     profile,
     profileSyncReady,
     pendingLocalMigration,
@@ -533,7 +499,6 @@ export function useAuth() {
     signUp,
     requestPasswordReset,
     updateAccount,
-    completeLocalMigration,
     signOut,
     clearAuthFeedback,
   }

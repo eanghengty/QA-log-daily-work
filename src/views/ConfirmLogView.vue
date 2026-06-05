@@ -39,13 +39,22 @@ watch(
     if (!value) return
     form.value = {
       title: value.title || '',
-      source: value.source || 'Email',
+      source: value.source || '',
       confirmedBy: value.confirmedBy || '',
       notes: value.notes || '',
       attachmentIds: [...(value.attachmentIds || [])],
     }
   },
   { immediate: true }
+)
+
+watch(
+  confirmSources,
+  (value) => {
+    if (isEdit.value || form.value.source || !value?.length) return
+    form.value.source = value[0].name
+  },
+  { immediate: true },
 )
 
 async function save() {
@@ -70,7 +79,7 @@ async function save() {
     }
 
     if (isEdit.value) {
-      await updateConfirm(Number(confirmId.value), payload)
+      await updateConfirm(confirmId.value, payload)
       await logAction('Confirmation updated', `${payload.title || 'Untitled'} — ${siteId}`)
     } else {
       await addConfirm(payload)
@@ -122,6 +131,9 @@ function emptyForm() {
         <div class="row gap-3">
           <div class="col gap-2" style="flex: 1 1 0%">
             <div class="label">Source</div>
+            <div v-if="!confirmSources?.length" class="tiny" style="color: var(--ink-3)">
+              Add confirmation sources from the sidebar before saving this sign-off.
+            </div>
             <div class="row gap-2" style="flex-wrap: wrap">
               <button
                 v-for="src in (confirmSources || [])"

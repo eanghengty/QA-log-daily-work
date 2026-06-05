@@ -1,5 +1,14 @@
 import { db, ensureLookupSeedData } from '../db/index.js'
+import { buildCloudBoardPayloads } from './cloudBoardMirror.js'
 import { toSiteFileSlug } from './siteRouting.js'
+import {
+  importCloudSiteCoreData,
+  refreshTrackerSetupMirror,
+  restoreCloudLookups,
+  restoreCloudSites,
+  isCloudTrackerEnabled,
+  upsertCloudSite,
+} from './trackerCloud.js'
 
 const FULL_BACKUP_TABLES = Object.freeze(db.tables.map((table) => table.name))
 const FULL_BACKUP_TABLE_HANDLES = Object.freeze(FULL_BACKUP_TABLES.map((tableName) => db[tableName]))
@@ -210,6 +219,20 @@ export async function importSite(jsonOrObject) {
     },
   )
 
+  if (isCloudTrackerEnabled()) {
+    await upsertCloudSite(data.site)
+    await importCloudSiteCoreData({
+      siteId,
+      reports: data.reports || [],
+      issues: data.issues || [],
+      confirms: data.confirms || [],
+      documentReferences: data.documentReferences || [],
+      emailSettings: data.emailSettings || null,
+      pendingSummary: data.pendingSummaries?.[0] || null,
+      boards: buildCloudBoardPayloads(data),
+    })
+  }
+
   return siteId
 }
 
@@ -240,6 +263,58 @@ export async function importBackup(jsonOrObject) {
       )
     },
   )
+
+  if (isCloudTrackerEnabled()) {
+    await Promise.all([
+      restoreCloudLookups({
+        scopes: data.scopes || [],
+        confirmSources: data.confirmSources || [],
+      }),
+      restoreCloudSites(data.sites || []),
+    ])
+
+    await Promise.all(
+      (data.sites || []).map((site) =>
+        importCloudSiteCoreData({
+          siteId: site.id,
+          reports: (data.reports || []).filter((row) => row.siteId === site.id),
+          issues: (data.issues || []).filter((row) => row.siteId === site.id),
+          confirms: (data.confirms || []).filter((row) => row.siteId === site.id),
+          documentReferences: (data.documentReferences || []).filter((row) => row.siteId === site.id),
+          emailSettings:
+            (data.emailSettings || []).find((row) => row.siteId === site.id) ||
+            (data.emailSettings?.siteId === site.id ? data.emailSettings : null),
+          pendingSummary:
+            (data.pendingSummaries || []).find((row) => row.siteId === site.id) ||
+            (data.pendingSummaries?.siteId === site.id ? data.pendingSummaries : null),
+          boards: buildCloudBoardPayloads({
+            checklists: (data.checklists || []).filter((row) => row.siteId === site.id),
+            checklistLayout:
+              (data.checklistLayouts || []).find((row) => row.siteId === site.id) ||
+              (data.checklistLayouts?.siteId === site.id ? data.checklistLayouts : null),
+            cableMatrices: (data.cableMatrices || []).filter((row) => row.siteId === site.id),
+            cableMatrixLayout:
+              (data.cableMatrixLayouts || []).find((row) => row.siteId === site.id) ||
+              (data.cableMatrixLayouts?.siteId === site.id ? data.cableMatrixLayouts : null),
+            antennaChecklists: (data.antennaChecklists || []).filter((row) => row.siteId === site.id),
+            antennaChecklistLayout:
+              (data.antennaChecklistLayouts || []).find((row) => row.siteId === site.id) ||
+              (data.antennaChecklistLayouts?.siteId === site.id ? data.antennaChecklistLayouts : null),
+            dcplChecklists: (data.dcplChecklists || []).filter((row) => row.siteId === site.id),
+            dcplChecklistLayout:
+              (data.dcplChecklistLayouts || []).find((row) => row.siteId === site.id) ||
+              (data.dcplChecklistLayouts?.siteId === site.id ? data.dcplChecklistLayouts : null),
+            cableChecklists: (data.cableChecklists || []).filter((row) => row.siteId === site.id),
+            cableChecklistLayout:
+              (data.cableChecklistLayouts || []).find((row) => row.siteId === site.id) ||
+              (data.cableChecklistLayouts?.siteId === site.id ? data.cableChecklistLayouts : null),
+          }),
+        }),
+      ),
+    )
+
+    await refreshTrackerSetupMirror()
+  }
 }
 
 async function loadFullBackupSnapshot() {

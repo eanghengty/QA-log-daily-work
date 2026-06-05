@@ -1,8 +1,18 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { db } from '../db/index.js'
+import {
+  createCloudMirrorRecordId,
+  ensureCloudBoardMirror,
+  isCloudBoardMirrorEnabled,
+  localRecordKey,
+  saveCloudBoardMirror,
+} from '../lib/cloudBoardMirror.js'
 import { useLiveQuery } from './useLiveQuery.js'
+import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 
 export function useCableChecklist(siteId) {
+  setupCloudBoardMirror(siteId)
+
   const { data: rows } = useLiveQuery(() =>
     db.cableChecklists.where('siteId').equals(siteId).sortBy('order')
   )
@@ -13,7 +23,8 @@ export function useCableChecklist(siteId) {
     const siteRows = await db.cableChecklists.where('siteId').equals(siteId).toArray()
     const nextOrder = siteRows.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
 
-    return await db.cableChecklists.add({
+    const record = {
+      ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
@@ -21,11 +32,14 @@ export function useCableChecklist(siteId) {
       changeHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
+    }
+    const id = await db.cableChecklists.add(record)
+    await persistCloudBoard(siteId, 'cable-checklist-row-added')
+    return id
   }
 
   async function updateRow(id, updates) {
-    const row = await db.cableChecklists.get(Number(id))
+    const row = await db.cableChecklists.get(localRecordKey(id))
     if (!row) return
 
     const normalizedUpdates = normalizeRowUpdates(updates)
@@ -51,19 +65,24 @@ export function useCableChecklist(siteId) {
       }
     }
 
-    return await db.cableChecklists.update(Number(id), {
+    const result = await db.cableChecklists.update(localRecordKey(id), {
       ...normalizedUpdates,
       changeHistory: nextHistory,
       updatedAt: new Date().toISOString(),
     })
+    await persistCloudBoard(siteId, 'cable-checklist-row-updated')
+    return result
   }
 
   async function deleteRow(id) {
-    await db.cableChecklists.delete(Number(id))
+    await db.cableChecklists.delete(localRecordKey(id))
+    await persistCloudBoard(siteId, 'cable-checklist-row-deleted')
   }
 
   async function reorderRows(orderedIds) {
-    const ids = orderedIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    const ids = orderedIds
+      .map((id) => localRecordKey(id))
+      .filter((id) => id !== null && id !== undefined && id !== '')
     if (!ids.length) return
 
     await db.transaction('rw', db.cableChecklists, async () => {
@@ -74,6 +93,7 @@ export function useCableChecklist(siteId) {
         })
       }
     })
+    await persistCloudBoard(siteId, 'cable-checklist-rows-reordered')
   }
 
   async function importRows(importedRows) {
@@ -111,6 +131,7 @@ export function useCableChecklist(siteId) {
         }
 
         const newRow = {
+          ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
           siteId,
           order: nextOrder,
           ...normalizedRow,
@@ -126,6 +147,7 @@ export function useCableChecklist(siteId) {
       }
     })
 
+    await persistCloudBoard(siteId, 'cable-checklist-rows-imported')
     return summary
   }
 
@@ -141,12 +163,13 @@ export function useCableChecklist(siteId) {
         const fieldValues = { ...row.fieldValues }
         delete fieldValues[columnId]
 
-        await db.cableChecklists.update(Number(row.id), {
+        await db.cableChecklists.update(localRecordKey(row.id), {
           fieldValues,
           updatedAt: new Date().toISOString(),
         })
       }
     })
+    await persistCloudBoard(siteId, 'cable-checklist-custom-columns-updated')
   }
 
   return {
@@ -159,6 +182,23 @@ export function useCableChecklist(siteId) {
     importRows,
     removeCustomColumnValues,
   }
+}
+
+function setupCloudBoardMirror(siteId) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  void ensureCloudBoardMirror('cableChecklist', siteId)
+  const { trackerSyncRefreshToken } = useRealtime()
+  watch(trackerSyncRefreshToken, () => {
+    void ensureCloudBoardMirror('cableChecklist', siteId, { force: true })
+  })
+}
+
+async function persistCloudBoard(siteId, eventName) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  await saveCloudBoardMirror('cableChecklist', siteId)
+  await broadcastTrackerChange(eventName)
 }
 
 export function summarizeCableChecklist(rows) {

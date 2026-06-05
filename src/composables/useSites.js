@@ -1,6 +1,13 @@
 import { computed } from 'vue'
 import { db } from '../db/index.js'
 import { assertValidSiteId } from '../lib/siteRouting.js'
+import {
+  createCloudSite,
+  deleteCloudSite,
+  isCloudTrackerEnabled,
+  updateCloudSite,
+} from '../lib/trackerCloud.js'
+import { broadcastTrackerChange } from './useRealtime.js'
 import { useLiveQuery } from './useLiveQuery.js'
 
 export function useSites() {
@@ -22,17 +29,42 @@ export function useSites() {
   async function addSite(site) {
     assertValidSiteId(site.id)
 
-    return await db.sites.add({
+    const nextSite = {
       ...site,
       createdAt: new Date().toISOString(),
-    })
+    }
+
+    if (isCloudTrackerEnabled()) {
+      const { site: savedSite } = await createCloudSite(nextSite)
+      await db.sites.put(savedSite)
+      await broadcastTrackerChange('site-added')
+      return savedSite.id
+    }
+
+    return await db.sites.add(nextSite)
   }
 
   async function updateSite(id, updates) {
+    if (isCloudTrackerEnabled()) {
+      const currentSite = await db.sites.get(id)
+      const { site } = await updateCloudSite(id, {
+        ...(currentSite || { id }),
+        ...updates,
+      })
+      await db.sites.put(site)
+      await broadcastTrackerChange('site-updated')
+      return 1
+    }
+
     return await db.sites.update(id, updates)
   }
 
   async function deleteSite(id) {
+    if (isCloudTrackerEnabled()) {
+      await deleteCloudSite(id)
+      await broadcastTrackerChange('site-deleted')
+    }
+
     // Delete all related data
     await db.reports.where('siteId').equals(id).delete()
     await db.issues.where('siteId').equals(id).delete()

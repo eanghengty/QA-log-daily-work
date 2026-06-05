@@ -65,7 +65,7 @@ async function save(options = {}) {
     }
 
     if (isEdit.value) {
-      await updateIssue(Number(issueId.value), payload)
+      await updateIssue(issueId.value, payload)
       await logAction('Blocker updated', `${payload.title || 'Untitled'} — ${siteId}`)
       router.push(buildSitePath(siteId))
       return

@@ -1,12 +1,6 @@
 import Dexie from 'dexie'
 
 export const db = new Dexie('qa-tracker')
-const DEFAULT_SCOPES = Object.freeze([{ name: 'Macro' }])
-const DEFAULT_CONFIRM_SOURCES = Object.freeze([
-  { name: 'Email' },
-  { name: 'Slack' },
-  { name: 'Meeting' },
-])
 
 db.version(1).stores({
   sites: 'id',
@@ -43,8 +37,6 @@ db.version(4).stores({
   attachments: '++id',
   emailSettings: 'siteId',
   scopes: '++id',
-}).upgrade(async (tx) => {
-  await ensureTxSeedRows(tx, 'scopes', DEFAULT_SCOPES)
 })
 
 db.version(5).stores({
@@ -68,8 +60,6 @@ db.version(6).stores({
   scopes: '++id',
   activityLog: '++id',
   confirmSources: '++id',
-}).upgrade(async (tx) => {
-  await ensureTxSeedRows(tx, 'confirmSources', DEFAULT_CONFIRM_SOURCES)
 })
 
 db.version(7).stores({
@@ -317,16 +307,39 @@ db.version(19).stores({
   pendingSummaries: 'siteId',
 })
 
+db.version(20).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  // Keep the legacy auto-increment key so existing IndexedDB installs can upgrade safely.
+  // Cloud-synced lookup rows may still provide explicit string ids when they are mirrored locally.
+  scopes: '++id, name',
+  activityLog: '++id',
+  confirmSources: '++id, name',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+  pendingSummaries: 'siteId',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
   await ensureLookupSeedData()
 }
 
 export async function ensureLookupSeedData() {
-  await Promise.all([
-    ensureTableSeedRows(db.scopes, DEFAULT_SCOPES),
-    ensureTableSeedRows(db.confirmSources, DEFAULT_CONFIRM_SOURCES),
-  ])
+  // Lookup values are user-managed records now and should not be hardcoded.
 }
 
 async function cleanLegacyDemoData() {
@@ -393,18 +406,4 @@ async function cleanLegacyDemoData() {
       ])
     }
   )
-}
-
-async function ensureTableSeedRows(table, rows) {
-  const existing = await table.count()
-  if (existing === 0 && rows.length) {
-    await table.bulkAdd(rows)
-  }
-}
-
-async function ensureTxSeedRows(tx, tableName, rows) {
-  const existing = await tx.table(tableName).count()
-  if (existing === 0 && rows.length) {
-    await tx.table(tableName).bulkAdd(rows)
-  }
 }

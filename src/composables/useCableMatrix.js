@@ -1,6 +1,14 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { db } from '../db/index.js'
+import {
+  createCloudMirrorRecordId,
+  ensureCloudBoardMirror,
+  isCloudBoardMirrorEnabled,
+  localRecordKey,
+  saveCloudBoardMirror,
+} from '../lib/cloudBoardMirror.js'
 import { useLiveQuery } from './useLiveQuery.js'
+import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 
 export const CABLE_CHECK_STATUS = {
   NO: 'no',
@@ -8,6 +16,8 @@ export const CABLE_CHECK_STATUS = {
 }
 
 export function useCableMatrix(siteId) {
+  setupCloudBoardMirror(siteId)
+
   const { data: rows } = useLiveQuery(() =>
     db.cableMatrices.where('siteId').equals(siteId).sortBy('order')
   )
@@ -18,7 +28,8 @@ export function useCableMatrix(siteId) {
     const siteRows = await db.cableMatrices.where('siteId').equals(siteId).toArray()
     const nextOrder = siteRows.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
 
-    return await db.cableMatrices.add({
+    const record = {
+      ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
       siteId,
       order: nextOrder,
       cableNumber: String(row.cableNumber || '').trim(),
@@ -32,11 +43,14 @@ export function useCableMatrix(siteId) {
       statusHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
+    }
+    const id = await db.cableMatrices.add(record)
+    await persistCloudBoard(siteId, 'cable-matrix-row-added')
+    return id
   }
 
   async function updateRow(id, updates) {
-    const row = await db.cableMatrices.get(Number(id))
+    const row = await db.cableMatrices.get(localRecordKey(id))
     if (!row) return
 
     const normalizedUpdates = normalizeRowUpdates(updates)
@@ -54,21 +68,24 @@ export function useCableMatrix(siteId) {
       )
     }
 
-    return await db.cableMatrices.update(Number(id), {
+    const result = await db.cableMatrices.update(localRecordKey(id), {
       ...normalizedUpdates,
       statusHistory: nextHistory,
       updatedAt: new Date().toISOString(),
     })
+    await persistCloudBoard(siteId, 'cable-matrix-row-updated')
+    return result
   }
 
   async function deleteRow(id) {
-    await db.cableMatrices.delete(Number(id))
+    await db.cableMatrices.delete(localRecordKey(id))
+    await persistCloudBoard(siteId, 'cable-matrix-row-deleted')
   }
 
   async function reorderRows(orderedIds) {
     const ids = orderedIds
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id))
+      .map((id) => localRecordKey(id))
+      .filter((id) => id !== null && id !== undefined && id !== '')
 
     if (!ids.length) return
 
@@ -80,10 +97,11 @@ export function useCableMatrix(siteId) {
         })
       }
     })
+    await persistCloudBoard(siteId, 'cable-matrix-rows-reordered')
   }
 
   async function setRowStatus(id, field, status) {
-    const row = await db.cableMatrices.get(Number(id))
+    const row = await db.cableMatrices.get(localRecordKey(id))
     if (!row) return
 
     const allowedFields = new Set(['testStatus', 'labelOriginStatus', 'labelEndStatus'])
@@ -93,7 +111,7 @@ export function useCableMatrix(siteId) {
     const previousStatus = normalizeCheckStatus(row[field])
     if (previousStatus === nextStatus) return
 
-    return await db.cableMatrices.update(Number(id), {
+    const result = await db.cableMatrices.update(localRecordKey(id), {
       [field]: nextStatus,
       statusHistory: [
         ...(Array.isArray(row.statusHistory) ? row.statusHistory : []),
@@ -101,6 +119,8 @@ export function useCableMatrix(siteId) {
       ],
       updatedAt: new Date().toISOString(),
     })
+    await persistCloudBoard(siteId, 'cable-matrix-row-updated')
+    return result
   }
 
   async function importRows(importedRows) {
@@ -139,6 +159,7 @@ export function useCableMatrix(siteId) {
         }
 
         const newRow = {
+          ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
           siteId,
           order: nextOrder,
           ...normalizedRow,
@@ -154,6 +175,7 @@ export function useCableMatrix(siteId) {
       }
     })
 
+    await persistCloudBoard(siteId, 'cable-matrix-rows-imported')
     return summary
   }
 
@@ -169,12 +191,13 @@ export function useCableMatrix(siteId) {
         const fieldValues = { ...row.fieldValues }
         delete fieldValues[columnId]
 
-        await db.cableMatrices.update(Number(row.id), {
+        await db.cableMatrices.update(localRecordKey(row.id), {
           fieldValues,
           updatedAt: new Date().toISOString(),
         })
       }
     })
+    await persistCloudBoard(siteId, 'cable-matrix-custom-columns-updated')
   }
 
   return {
@@ -188,6 +211,23 @@ export function useCableMatrix(siteId) {
     importRows,
     removeCustomColumnValues,
   }
+}
+
+function setupCloudBoardMirror(siteId) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  void ensureCloudBoardMirror('cableMatrix', siteId)
+  const { trackerSyncRefreshToken } = useRealtime()
+  watch(trackerSyncRefreshToken, () => {
+    void ensureCloudBoardMirror('cableMatrix', siteId, { force: true })
+  })
+}
+
+async function persistCloudBoard(siteId, eventName) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  await saveCloudBoardMirror('cableMatrix', siteId)
+  await broadcastTrackerChange(eventName)
 }
 
 export function summarizeCableMatrix(rows) {

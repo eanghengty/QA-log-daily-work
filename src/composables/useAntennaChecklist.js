@@ -1,8 +1,18 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { db } from '../db/index.js'
+import {
+  createCloudMirrorRecordId,
+  ensureCloudBoardMirror,
+  isCloudBoardMirrorEnabled,
+  localRecordKey,
+  saveCloudBoardMirror,
+} from '../lib/cloudBoardMirror.js'
 import { useLiveQuery } from './useLiveQuery.js'
+import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 
 export function useAntennaChecklist(siteId) {
+  setupCloudBoardMirror(siteId)
+
   const { data: rows } = useLiveQuery(() =>
     db.antennaChecklists.where('siteId').equals(siteId).sortBy('order')
   )
@@ -13,7 +23,8 @@ export function useAntennaChecklist(siteId) {
     const siteRows = await db.antennaChecklists.where('siteId').equals(siteId).toArray()
     const nextOrder = siteRows.reduce((max, item) => Math.max(max, Number(item.order) || 0), 0) + 1
 
-    return await db.antennaChecklists.add({
+    const record = {
+      ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
@@ -21,11 +32,14 @@ export function useAntennaChecklist(siteId) {
       changeHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
+    }
+    const id = await db.antennaChecklists.add(record)
+    await persistCloudBoard(siteId, 'antenna-checklist-row-added')
+    return id
   }
 
   async function updateRow(id, updates) {
-    const row = await db.antennaChecklists.get(Number(id))
+    const row = await db.antennaChecklists.get(localRecordKey(id))
     if (!row) return
 
     const normalizedUpdates = normalizeRowUpdates(updates)
@@ -51,21 +65,24 @@ export function useAntennaChecklist(siteId) {
       }
     }
 
-    return await db.antennaChecklists.update(Number(id), {
+    const result = await db.antennaChecklists.update(localRecordKey(id), {
       ...normalizedUpdates,
       changeHistory: nextHistory,
       updatedAt: new Date().toISOString(),
     })
+    await persistCloudBoard(siteId, 'antenna-checklist-row-updated')
+    return result
   }
 
   async function deleteRow(id) {
-    await db.antennaChecklists.delete(Number(id))
+    await db.antennaChecklists.delete(localRecordKey(id))
+    await persistCloudBoard(siteId, 'antenna-checklist-row-deleted')
   }
 
   async function reorderRows(orderedIds) {
     const ids = orderedIds
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id))
+      .map((id) => localRecordKey(id))
+      .filter((id) => id !== null && id !== undefined && id !== '')
 
     if (!ids.length) return
 
@@ -77,6 +94,7 @@ export function useAntennaChecklist(siteId) {
         })
       }
     })
+    await persistCloudBoard(siteId, 'antenna-checklist-rows-reordered')
   }
 
   async function importRows(importedRows) {
@@ -114,6 +132,7 @@ export function useAntennaChecklist(siteId) {
         }
 
         const newRow = {
+          ...(isCloudBoardMirrorEnabled() ? { id: createCloudMirrorRecordId() } : {}),
           siteId,
           order: nextOrder,
           ...normalizedRow,
@@ -129,6 +148,7 @@ export function useAntennaChecklist(siteId) {
       }
     })
 
+    await persistCloudBoard(siteId, 'antenna-checklist-rows-imported')
     return summary
   }
 
@@ -144,12 +164,13 @@ export function useAntennaChecklist(siteId) {
         const fieldValues = { ...row.fieldValues }
         delete fieldValues[columnId]
 
-        await db.antennaChecklists.update(Number(row.id), {
+        await db.antennaChecklists.update(localRecordKey(row.id), {
           fieldValues,
           updatedAt: new Date().toISOString(),
         })
       }
     })
+    await persistCloudBoard(siteId, 'antenna-checklist-custom-columns-updated')
   }
 
   return {
@@ -162,6 +183,23 @@ export function useAntennaChecklist(siteId) {
     importRows,
     removeCustomColumnValues,
   }
+}
+
+function setupCloudBoardMirror(siteId) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  void ensureCloudBoardMirror('antennaChecklist', siteId)
+  const { trackerSyncRefreshToken } = useRealtime()
+  watch(trackerSyncRefreshToken, () => {
+    void ensureCloudBoardMirror('antennaChecklist', siteId, { force: true })
+  })
+}
+
+async function persistCloudBoard(siteId, eventName) {
+  if (!isCloudBoardMirrorEnabled()) return
+
+  await saveCloudBoardMirror('antennaChecklist', siteId)
+  await broadcastTrackerChange(eventName)
 }
 
 export function summarizeAntennaChecklist(rows) {

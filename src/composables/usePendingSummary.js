@@ -1,6 +1,12 @@
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { db } from '../db/index.js'
 import { parsePendingSummaryInput } from '../lib/pendingSummaryParser.js'
+import {
+  getCloudPendingSummary,
+  isCloudTrackerEnabled,
+  saveCloudPendingSummary,
+} from '../lib/trackerCloud.js'
+import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 import { useLiveQuery } from './useLiveQuery.js'
 
 export const PENDING_SUMMARY_STATUS = {
@@ -9,13 +15,144 @@ export const PENDING_SUMMARY_STATUS = {
   DONE: 'done',
 }
 
+const cloudPendingSummaryBySite = new Map()
+
+function createCloudPendingSummaryState() {
+  return {
+    data: ref(null),
+    loading: ref(true),
+    error: ref(null),
+    ready: false,
+    pending: null,
+  }
+}
+
+function getCloudPendingSummaryState(siteId) {
+  if (!cloudPendingSummaryBySite.has(siteId)) {
+    cloudPendingSummaryBySite.set(siteId, createCloudPendingSummaryState())
+  }
+  return cloudPendingSummaryBySite.get(siteId)
+}
+
+async function loadCloudPendingSummary(siteId, state, { force = false } = {}) {
+  if (!force && state.ready) return state.data.value
+  if (state.pending) return await state.pending
+
+  state.loading.value = true
+  state.pending = getCloudPendingSummary(siteId)
+    .then(async ({ pendingSummary }) => {
+      let nextBoard = pendingSummary || null
+
+      if (!nextBoard) {
+        const localBoard = await db.pendingSummaries.get(siteId)
+        if (localBoard) {
+          const { pendingSummary: savedPendingSummary } = await saveCloudPendingSummary(localBoard)
+          nextBoard = savedPendingSummary || localBoard
+        }
+      }
+
+      state.data.value = nextBoard
+      state.error.value = null
+      state.ready = true
+
+      if (nextBoard) {
+        await db.pendingSummaries.put(nextBoard)
+      } else {
+        await db.pendingSummaries.delete(siteId)
+      }
+
+      return state.data.value
+    })
+    .catch((error) => {
+      state.error.value = error
+      throw error
+    })
+    .finally(() => {
+      state.loading.value = false
+      state.pending = null
+    })
+
+  return await state.pending
+}
+
 export function usePendingSummary(siteId) {
-  const { data: board } = useLiveQuery(() => db.pendingSummaries.get(siteId))
+  const cloudState = isCloudTrackerEnabled() ? getCloudPendingSummaryState(siteId) : null
+  const liveState = isCloudTrackerEnabled()
+    ? {
+        data: cloudState.data,
+        loading: cloudState.loading,
+        error: cloudState.error,
+      }
+    : useLiveQuery(() => db.pendingSummaries.get(siteId))
+
+  if (cloudState) {
+    void loadCloudPendingSummary(siteId, cloudState)
+    const { trackerSyncRefreshToken } = useRealtime()
+    watch(
+      trackerSyncRefreshToken,
+      () => {
+        void loadCloudPendingSummary(siteId, cloudState, { force: true })
+      },
+    )
+  }
+
+  const board = liveState.data
   const sections = computed(() => normalizeSections(board.value?.sections || []))
   const summary = computed(() => summarizePendingSummary(sections.value))
 
+  async function loadCurrentBoard() {
+    if (isCloudTrackerEnabled()) {
+      const state = getCloudPendingSummaryState(siteId)
+      const currentBoard = await loadCloudPendingSummary(siteId, state)
+      if (currentBoard) {
+        return {
+          ...currentBoard,
+          sections: normalizeSections(currentBoard.sections || []),
+        }
+      }
+      return createEmptyBoard(siteId)
+    }
+
+    const currentBoard = await db.pendingSummaries.get(siteId)
+    return currentBoard
+      ? {
+          ...currentBoard,
+          sections: normalizeSections(currentBoard.sections || []),
+        }
+      : createEmptyBoard(siteId)
+  }
+
+  async function persistBoard(nextBoard, reason = 'pending-summary-updated') {
+    if (isCloudTrackerEnabled()) {
+      const { pendingSummary } = await saveCloudPendingSummary(nextBoard)
+      const savedBoard = pendingSummary || nextBoard
+      await db.pendingSummaries.put(savedBoard)
+      const state = getCloudPendingSummaryState(siteId)
+      state.data.value = savedBoard
+      state.error.value = null
+      state.ready = true
+      state.loading.value = false
+      await broadcastTrackerChange(reason)
+      return savedBoard
+    }
+
+    await db.pendingSummaries.put(nextBoard)
+    return nextBoard
+  }
+
+  async function saveBoard(existingBoard, nextSections, reason) {
+    return await persistBoard(
+      {
+        ...existingBoard,
+        sections: nextSections,
+        updatedAt: new Date().toISOString(),
+      },
+      reason,
+    )
+  }
+
   async function generateFromText(sourceText) {
-    const existingBoard = await db.pendingSummaries.get(siteId)
+    const existingBoard = await loadCurrentBoard()
     const existingSections = normalizeSections(existingBoard?.sections || [])
 
     if (existingSections.length) {
@@ -26,19 +163,22 @@ export function usePendingSummary(siteId) {
     const nextSections = preserveExistingState(parsed.sections, existingSections)
     const now = new Date().toISOString()
 
-    await db.pendingSummaries.put({
-      siteId,
-      sections: nextSections,
-      sourceText: String(sourceText || ''),
-      createdAt: existingBoard?.createdAt || now,
-      updatedAt: now,
-    })
+    await persistBoard(
+      {
+        siteId,
+        sections: nextSections,
+        sourceText: String(sourceText || ''),
+        createdAt: existingBoard?.createdAt || now,
+        updatedAt: now,
+      },
+      'pending-summary-generated',
+    )
 
     return summarizePendingSummary(nextSections)
   }
 
   async function addSection(sectionData) {
-    const existingBoard = await ensureBoard(siteId)
+    const existingBoard = await loadCurrentBoard()
     const nextTitle = String(sectionData?.title || '').trim()
     const nextCode = String(sectionData?.code || '').trim()
 
@@ -62,12 +202,12 @@ export function usePendingSummary(siteId) {
       },
     ]
 
-    await saveBoard(existingBoard, nextSections)
+    await saveBoard(existingBoard, nextSections, 'pending-summary-section-added')
     return summarizePendingSummary(nextSections)
   }
 
   async function addGroup(sectionId, groupData) {
-    const existingBoard = await ensureBoard(siteId)
+    const existingBoard = await loadCurrentBoard()
     const nextTitle = String(groupData?.title || '').trim()
     const nextCode = String(groupData?.code || '').trim()
 
@@ -104,12 +244,12 @@ export function usePendingSummary(siteId) {
       throw new Error('Main list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections)
+    await saveBoard(existingBoard, nextSections, 'pending-summary-group-added')
     return summarizePendingSummary(nextSections)
   }
 
   async function addItem(sectionId, groupId, itemData) {
-    const existingBoard = await ensureBoard(siteId)
+    const existingBoard = await loadCurrentBoard()
     const nextTitle = String(itemData?.title || '').trim()
 
     if (!nextTitle) {
@@ -152,12 +292,12 @@ export function usePendingSummary(siteId) {
       throw new Error('Sub list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections)
+    await saveBoard(existingBoard, nextSections, 'pending-summary-item-added')
     return summarizePendingSummary(nextSections)
   }
 
   async function deleteSection(sectionId) {
-    const existingBoard = await ensureBoard(siteId)
+    const existingBoard = await loadCurrentBoard()
     const currentSections = normalizeSections(existingBoard.sections || [])
     const nextSections = currentSections
       .filter((section) => section.id !== sectionId)
@@ -170,12 +310,12 @@ export function usePendingSummary(siteId) {
       throw new Error('Main list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections)
+    await saveBoard(existingBoard, nextSections, 'pending-summary-section-deleted')
     return summarizePendingSummary(nextSections)
   }
 
   async function deleteGroup(sectionId, groupId) {
-    const existingBoard = await ensureBoard(siteId)
+    const existingBoard = await loadCurrentBoard()
     let didChange = false
 
     const nextSections = normalizeSections(existingBoard.sections || []).map((section) => {
@@ -202,12 +342,12 @@ export function usePendingSummary(siteId) {
       throw new Error('Sub list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections)
+    await saveBoard(existingBoard, nextSections, 'pending-summary-group-deleted')
     return summarizePendingSummary(nextSections)
   }
 
   async function deleteItem(sectionId, groupId, itemId) {
-    const existingBoard = await ensureBoard(siteId)
+    const existingBoard = await loadCurrentBoard()
     let didChange = false
 
     const nextSections = normalizeSections(existingBoard.sections || []).map((section) => {
@@ -241,12 +381,12 @@ export function usePendingSummary(siteId) {
       throw new Error('Pending item not found.')
     }
 
-    await saveBoard(existingBoard, nextSections)
+    await saveBoard(existingBoard, nextSections, 'pending-summary-item-deleted')
     return summarizePendingSummary(nextSections)
   }
 
   async function setItemStatus(sectionId, groupId, itemId, status, options = {}) {
-    const existingBoard = await db.pendingSummaries.get(siteId)
+    const existingBoard = await loadCurrentBoard()
     if (!existingBoard) return
 
     const nextStatus = normalizeStatus(status)
@@ -289,15 +429,11 @@ export function usePendingSummary(siteId) {
 
     if (!didChange) return
 
-    await db.pendingSummaries.put({
-      ...existingBoard,
-      sections: nextSections,
-      updatedAt: new Date().toISOString(),
-    })
+    await saveBoard(existingBoard, nextSections, 'pending-summary-status-updated')
   }
 
   async function setItemChecking(sectionId, groupId, itemId, isChecking) {
-    const existingBoard = await db.pendingSummaries.get(siteId)
+    const existingBoard = await loadCurrentBoard()
     if (!existingBoard) return
 
     const nextCheckingState = Boolean(isChecking)
@@ -330,11 +466,7 @@ export function usePendingSummary(siteId) {
 
     if (!didChange) return
 
-    await db.pendingSummaries.put({
-      ...existingBoard,
-      sections: nextSections,
-      updatedAt: new Date().toISOString(),
-    })
+    await saveBoard(existingBoard, nextSections, 'pending-summary-checking-updated')
   }
 
   return {
@@ -445,15 +577,7 @@ function findByTitle(collection, title) {
   return (collection || []).find((item) => normalizeKey(item.title) === key)
 }
 
-async function ensureBoard(siteId) {
-  const existingBoard = await db.pendingSummaries.get(siteId)
-  if (existingBoard) {
-    return {
-      ...existingBoard,
-      sections: normalizeSections(existingBoard.sections || []),
-    }
-  }
-
+function createEmptyBoard(siteId) {
   const now = new Date().toISOString()
   return {
     siteId,
@@ -462,14 +586,6 @@ async function ensureBoard(siteId) {
     createdAt: now,
     updatedAt: now,
   }
-}
-
-async function saveBoard(existingBoard, nextSections) {
-  await db.pendingSummaries.put({
-    ...existingBoard,
-    sections: nextSections,
-    updatedAt: new Date().toISOString(),
-  })
 }
 
 function normalizeStatus(status) {
