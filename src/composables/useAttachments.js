@@ -78,15 +78,16 @@ export async function uploadAttachmentToCloud(attachment) {
 }
 
 export async function syncLocalAttachmentsToCloud({ force = false } = {}) {
-  if (!isCloudTrackerEnabled()) return { uploaded: 0, skipped: 0, failed: 0 }
+  if (!isCloudTrackerEnabled()) return { uploaded: 0, skipped: 0, failed: 0, errors: [] }
   if (!force && hasCompletedLocalAttachmentCloudSync()) {
-    return { uploaded: 0, skipped: 0, failed: 0 }
+    return { uploaded: 0, skipped: 0, failed: 0, errors: [] }
   }
 
   const attachments = await db.attachments.toArray()
   let uploaded = 0
   let skipped = 0
   let failed = 0
+  const errors = []
 
   for (const attachment of attachments) {
     if (!hasUsableAttachmentBlob(attachment)) {
@@ -100,12 +101,21 @@ export async function syncLocalAttachmentsToCloud({ force = false } = {}) {
       else skipped += 1
     } catch (error) {
       failed += 1
+      if (errors.length < 5) {
+        errors.push({
+          id: attachment?.id ?? '',
+          name: attachment?.name || `att-${attachment?.id ?? ''}`,
+          message: formatAttachmentSyncError(error),
+          code: error?.code || '',
+          status: error?.status || '',
+        })
+      }
       console.warn('Unable to sync local attachment to cloud.', error)
     }
   }
 
   if (!failed) markLocalAttachmentCloudSyncComplete()
-  return { uploaded, skipped, failed }
+  return { uploaded, skipped, failed, errors }
 }
 
 async function getAttachmentByFlexibleId(id) {
@@ -171,4 +181,10 @@ function markLocalAttachmentCloudSyncComplete() {
   } catch {
     // Ignore local sync marker failures.
   }
+}
+
+function formatAttachmentSyncError(error) {
+  const code = error?.code ? ` (${error.code})` : ''
+  const status = error?.status ? ` HTTP ${error.status}` : ''
+  return `${error?.message || 'Unknown sync error'}${status}${code}`
 }

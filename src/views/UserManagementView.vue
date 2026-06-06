@@ -26,6 +26,7 @@ const roleDrafts = ref({})
 const attachmentSyncBusy = ref(false)
 const attachmentSyncMessage = ref('')
 const attachmentSyncTone = ref('confirm')
+const attachmentSyncErrors = ref([])
 
 const subtitle = computed(() => 'Admin-only field-user setup and role assignment for the custom backend.')
 const totalAdmins = computed(() => (users.value || []).filter((entry) => entry.role === 'admin').length)
@@ -75,15 +76,18 @@ async function syncBrowserAttachments() {
   attachmentSyncBusy.value = true
   attachmentSyncMessage.value = ''
   attachmentSyncTone.value = 'confirm'
+  attachmentSyncErrors.value = []
 
   try {
     const result = await syncLocalAttachmentsToCloud({ force: true })
     attachmentSyncMessage.value =
       `Attachment sync complete: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed.`
     attachmentSyncTone.value = result.failed ? 'issue' : 'confirm'
+    attachmentSyncErrors.value = result.errors || []
   } catch (err) {
     attachmentSyncMessage.value = `Attachment sync failed: ${err.message || 'Unknown error'}`
     attachmentSyncTone.value = 'issue'
+    attachmentSyncErrors.value = [{ name: 'Sync request', message: err.message || 'Unknown error' }]
   } finally {
     attachmentSyncBusy.value = false
   }
@@ -187,6 +191,20 @@ watch(
           >
             <MaterialIcon :name="attachmentSyncTone === 'issue' ? 'error' : 'check_circle'" :size="14" />
             {{ attachmentSyncMessage }}
+          </div>
+          <div v-if="attachmentSyncErrors.length" class="box-soft col gap-2 p-3">
+            <div class="label">Failed attachment details</div>
+            <div
+              v-for="entry in attachmentSyncErrors"
+              :key="`${entry.id || entry.name}:${entry.message}`"
+              class="tiny"
+              style="color: var(--issue); line-height: 1.4"
+            >
+              {{ entry.name || `att-${entry.id}` }}: {{ entry.message }}
+            </div>
+            <div class="tiny" style="color: var(--ink-3)">
+              If every attachment shows the same deployment error, run the Supabase migration and deploy `tracker-attachments`, then sync again.
+            </div>
           </div>
         </div>
 
