@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
 
     if (action === 'upload') {
       const attachment = normalizeAttachmentInput(body.attachment || {})
-      const { data, error } = await admin
+      const { error } = await admin
         .from('tracker_attachments')
         .upsert({
           id: attachment.id,
@@ -97,11 +97,18 @@ Deno.serve(async (req) => {
           created_by: user.id,
           updated_by: user.id,
         })
-        .select('id, file_name, content_type, size_bytes, created_at, updated_at')
-        .single()
 
-      if (error) throw error
-      return jsonResponse(200, { attachment: mapAttachmentRow(data) })
+      if (error) {
+        throw new ApiError(500, error.code || 'ATTACHMENT_UPLOAD_FAILED', error.message || 'Attachment upload failed.')
+      }
+      return jsonResponse(200, {
+        attachment: {
+          id: attachment.id,
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size,
+        },
+      })
     }
 
     if (action === 'get') {
@@ -112,7 +119,9 @@ Deno.serve(async (req) => {
         .eq('id', id)
         .maybeSingle()
 
-      if (error) throw error
+      if (error) {
+        throw new ApiError(500, error.code || 'ATTACHMENT_LOOKUP_FAILED', error.message || 'Attachment lookup failed.')
+      }
       return jsonResponse(200, { attachment: data ? mapAttachmentRow(data, true) : null })
     }
 
