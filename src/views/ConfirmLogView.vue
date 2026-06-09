@@ -156,7 +156,7 @@ function emptyForm() {
 
         <div class="col gap-2">
           <div class="label">Notes / context</div>
-          <textarea v-model="form.notes" class="field" style="font-family: 'Patrick Hand', cursive; font-size: 15px; padding: 14px; min-height: 90px; resize: none" />
+          <textarea v-model="form.notes" class="field" style="font-size: 15px; padding: 14px; min-height: 90px; resize: none" />
         </div>
 
         <div class="col gap-2">

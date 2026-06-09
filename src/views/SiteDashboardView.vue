@@ -5,6 +5,7 @@ import { useSites } from '../composables/useSites.js'
 import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
+import { useActionItems } from '../composables/useActionItems.js'
 import { useChecklists } from '../composables/useChecklists.js'
 import { useCableMatrix } from '../composables/useCableMatrix.js'
 import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
@@ -36,6 +37,7 @@ const { data: site } = useSiteById(siteId)
 const { reports, deleteReport } = useReports(siteId)
 const { issues, pendingIssues, deleteIssue } = useIssues(siteId)
 const { confirms, deleteConfirm } = useConfirms(siteId)
+const { actionItems, openActionItems, deleteActionItem } = useActionItems(siteId)
 const { summary: checklistSummary } = useChecklists(siteId)
 const { summary: cableMatrixSummary } = useCableMatrix(siteId)
 const { summary: antennaChecklistSummary } = useAntennaChecklist(siteId)
@@ -114,6 +116,11 @@ const cableChecklistLabel = computed(() => {
 const pendingProgressValue = computed(() =>
   `${pendingProgressSummary.value?.done || 0}/${pendingProgressSummary.value?.total || 0}`
 )
+const actionItemSummary = computed(() => {
+  const pe = (openActionItems.value || []).filter((item) => item.source === 'PE').length
+  const customer = (openActionItems.value || []).filter((item) => item.source === 'Customer').length
+  return `${pe} PE - ${customer} Customer`
+})
 const pendingProgressLabel = computed(() => {
   if (!pendingProgressSummary.value?.total) return 'no pending items yet'
 
@@ -143,6 +150,10 @@ function logIssue() {
 
 function saveConfirm() {
   router.push(buildSitePath(siteId, '/confirm/new'))
+}
+
+function addActionItem() {
+  router.push(buildSitePath(siteId, '/action/new'))
 }
 
 function openSettings() {
@@ -198,6 +209,10 @@ function editConfirm(confirmId) {
   router.push(buildSitePath(siteId, `/confirm/${confirmId}/edit`))
 }
 
+function editActionItem(actionItemId) {
+  router.push(buildSitePath(siteId, `/action/${actionItemId}/edit`))
+}
+
 const pendingDelete = ref(null)
 
 function requestDelete(key) { pendingDelete.value = key }
@@ -238,6 +253,11 @@ const showDocumentReferenceModal = ref(false)
 async function handleExportSite() {
   await exportSite(siteId)
   await logAction('Site exported', `${siteId} — ${site.value?.name || ''}`)
+}
+async function confirmDeleteActionItem(actionItem) {
+  pendingDelete.value = null
+  await deleteActionItem(actionItem.id)
+  await logAction('Action item deleted', `${actionItem.title || actionItem.code || 'Untitled'} - ${siteId}`)
 }
 
 async function updateSnagHistoryCategory(report, category) {
@@ -456,6 +476,7 @@ function summarizeImportPayload(data) {
       <div class="row gap-3">
         <StatCard label="Open blockers" :value="pendingIssues?.length || 0" accent="var(--issue)" :sub="pendingSummary" />
         <StatCard label="Confirmations" :value="confirms?.length || 0" accent="var(--confirm)" sub="all time" />
+        <StatCard label="Action items" :value="openActionItems?.length || 0" accent="var(--pending)" :sub="actionItemSummary" />
         <StatCard label="Progress updates" :value="reportsThisMonth" :sub="latestReportLabel" />
         <StatCard label="Checklist progress" :value="checklistValue" accent="var(--confirm)" :sub="checklistLabel" />
         <StatCard label="Cable matrix" :value="cableMatrixValue" accent="var(--confirm)" :sub="cableMatrixLabel" />
@@ -507,6 +528,15 @@ function summarizeImportPayload(data) {
               <div class="title-md">Save confirmation</div>
             </div>
             <div class="small">capture sign-off</div>
+          </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="addActionItem">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="assignment" />
+              </div>
+              <div class="title-md">Add action item</div>
+            </div>
+            <div class="small">PE or Customer task</div>
           </button>
           <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openChecklist">
             <div class="row items-center gap-2">
@@ -788,6 +818,50 @@ function summarizeImportPayload(data) {
                   </div>
                 </template>
                 <button v-else type="button" class="chip" style="color: var(--ink-3)" @click="requestDelete(`confirm-${confirm.id}`)">
+                  <MaterialIcon name="delete" :size="14" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col gap-3 grow" style="flex: 1 1 0%">
+          <div class="between">
+            <div class="title-lg">Action items <span class="small" style="margin-left: 8px">({{ openActionItems?.length || 0 }} open)</span></div>
+            <button type="button" class="btn btn-ghost" @click="addActionItem">
+              <MaterialIcon name="add" />
+              Add action item
+            </button>
+          </div>
+          <div class="box p-4 col">
+            <div v-if="!actionItems?.length" class="small">No action items yet.</div>
+            <div
+              v-for="actionItem in actionItems?.slice(0, 4)"
+              :key="actionItem.id"
+              class="row items-center gap-3"
+              style="padding: 10px 0; border-bottom: 1px dashed var(--line)"
+            >
+              <button
+                type="button"
+                class="row items-center gap-3 grow"
+                style="border: 0; background: transparent; text-align: left; cursor: pointer; min-width: 0"
+                @click="editActionItem(actionItem.id)"
+              >
+                <span class="chip chip-neutral mono" style="min-width: 48px; justify-content: center; flex-shrink: 0">{{ actionItem.code }}</span>
+                <div class="col grow" style="min-width: 0">
+                  <div style="font-size: 13px; font-weight: 500">{{ actionItem.title || 'Untitled action item' }}</div>
+                  <div class="tiny">{{ actionItem.date }} - {{ actionItem.source }} - {{ actionItem.attachmentIds?.length || 0 }} attached</div>
+                </div>
+                <span class="pill" :class="actionItem.status === 'done' ? 'chip-confirm' : 'chip-pending'" style="border: 1.2px solid currentColor; flex-shrink: 0">{{ actionItem.status }}</span>
+              </button>
+              <div class="col gap-1" style="flex-shrink: 0; align-items: center">
+                <template v-if="pendingDelete === `action-${actionItem.id}`">
+                  <div class="tiny" style="color: var(--issue); white-space: nowrap">Delete?</div>
+                  <div class="row gap-1">
+                    <button type="button" class="chip chip-issue" style="font-size: 11px" @click="confirmDeleteActionItem(actionItem)">Yes</button>
+                    <button type="button" class="chip" style="font-size: 11px" @click="cancelDelete">No</button>
+                  </div>
+                </template>
+                <button v-else type="button" class="chip" style="color: var(--ink-3)" @click="requestDelete(`action-${actionItem.id}`)">
                   <MaterialIcon name="delete" :size="14" />
                 </button>
               </div>

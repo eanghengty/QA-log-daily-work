@@ -7,6 +7,7 @@ import {
 } from '../_shared/auth.ts'
 import {
   mapConfirmRow,
+  mapActionItemRow,
   mapDocumentReferenceRow,
   mapEmailSettingsRow,
   mapIssueRow,
@@ -15,6 +16,7 @@ import {
   mapSnagReportRow,
   mapSnagSummaryRow,
   normalizeConfirmInput,
+  normalizeActionItemInput,
   normalizeDocumentReferenceInput,
   normalizeEmailSettingsInput,
   normalizeIssueInput,
@@ -105,9 +107,9 @@ function normalizeBoardsPayload(boards: unknown) {
 
 async function buildNextLegacyCode(
   admin: Awaited<ReturnType<typeof loadSessionContext>>['admin'],
-  tableName: 'issues' | 'confirms',
+  tableName: 'issues' | 'confirms' | 'action_items',
   siteId: string,
-  prefix: 'I' | 'C',
+  prefix: 'I' | 'C' | 'A',
   seed: number,
 ) {
   const { data, error } = await admin.from(tableName).select('code').eq('site_id', siteId)
@@ -501,6 +503,84 @@ Deno.serve(async (req) => {
 
       if (error) throw error
       return jsonResponse(200, { confirms: (data || []).map(mapConfirmRow) })
+    }
+
+    if (action === 'list-action-items') {
+      const siteId = requireSiteId(body.siteId)
+      const { data, error } = await admin
+        .from('action_items')
+        .select('id, site_id, code, title, source, notes, status, attachment_ids, event_date, created_at, updated_at')
+        .eq('site_id', siteId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return jsonResponse(200, { actionItems: (data || []).map(mapActionItemRow) })
+    }
+
+    if (action === 'get-action-item') {
+      const id = requireRecordId(body.id, 'Action item ID')
+      const { data, error } = await admin
+        .from('action_items')
+        .select('id, site_id, code, title, source, notes, status, attachment_ids, event_date, created_at, updated_at')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (error) throw error
+      return jsonResponse(200, { actionItem: data ? mapActionItemRow(data) : null })
+    }
+
+    if (action === 'create-action-item') {
+      const item = normalizeActionItemInput(body.actionItem || {})
+      const code = await buildNextLegacyCode(admin, 'action_items', item.siteId, 'A', 99)
+      const { data, error } = await admin
+        .from('action_items')
+        .insert({
+          site_id: item.siteId,
+          code,
+          title: item.title,
+          source: item.source,
+          notes: item.notes,
+          status: item.status,
+          attachment_ids: item.attachmentIds,
+          event_date: item.date,
+          created_by: user.id,
+          updated_by: user.id,
+        })
+        .select('id, site_id, code, title, source, notes, status, attachment_ids, event_date, created_at, updated_at')
+        .single()
+
+      if (error) throw error
+      return jsonResponse(200, { actionItem: mapActionItemRow(data) })
+    }
+
+    if (action === 'update-action-item') {
+      const id = requireRecordId(body.id, 'Action item ID')
+      const item = normalizeActionItemInput(body.updates || {})
+      const { data, error } = await admin
+        .from('action_items')
+        .update({
+          site_id: item.siteId,
+          title: item.title,
+          source: item.source,
+          notes: item.notes,
+          status: item.status,
+          attachment_ids: item.attachmentIds,
+          event_date: item.date,
+          updated_by: user.id,
+        })
+        .eq('id', id)
+        .select('id, site_id, code, title, source, notes, status, attachment_ids, event_date, created_at, updated_at')
+        .single()
+
+      if (error) throw error
+      return jsonResponse(200, { actionItem: mapActionItemRow(data) })
+    }
+
+    if (action === 'delete-action-item') {
+      const id = requireRecordId(body.id, 'Action item ID')
+      const { error } = await admin.from('action_items').delete().eq('id', id)
+      if (error) throw error
+      return jsonResponse(200, { ok: true })
     }
 
     if (action === 'get-confirm') {

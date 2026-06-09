@@ -139,6 +139,16 @@ const routes = [
     name: 'edit-confirm',
     component: () => import('../views/ConfirmLogView.vue'),
   },
+  {
+    path: '/site/:id/action/new',
+    name: 'new-action-item',
+    component: () => import('../views/ActionItemView.vue'),
+  },
+  {
+    path: '/site/:id/action/:actionItemId/edit',
+    name: 'edit-action-item',
+    component: () => import('../views/ActionItemView.vue'),
+  },
 ]
 
 const router = createRouter({

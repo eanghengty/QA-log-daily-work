@@ -299,6 +299,42 @@ export async function deleteCloudConfirm(id) {
   })
 }
 
+export async function listCloudActionItems(siteId) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'list-action-items',
+    siteId,
+  })
+}
+
+export async function getCloudActionItem(id) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'get-action-item',
+    id,
+  })
+}
+
+export async function createCloudActionItem(actionItem) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'create-action-item',
+    actionItem,
+  })
+}
+
+export async function updateCloudActionItem(id, updates) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'update-action-item',
+    id,
+    updates,
+  })
+}
+
+export async function deleteCloudActionItem(id) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'delete-action-item',
+    id,
+  })
+}
+
 export async function getCloudSiteBoard(siteId, boardKey) {
   return await callTrackerFunction('tracker-core', {
     action: 'get-site-board',

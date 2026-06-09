@@ -222,6 +222,44 @@ export function mapConfirmRow(row: Record<string, unknown>) {
   }
 }
 
+export function normalizeActionItemInput(value: Record<string, unknown>) {
+  const source = normalizeText(value.source) || 'PE'
+  if (!['PE', 'Customer'].includes(source)) {
+    throw new ApiError(400, 'INVALID_ACTION_ITEM_SOURCE', 'Action item source must be PE or Customer.')
+  }
+
+  const status = normalizeText(value.status) || 'open'
+  if (!['open', 'in progress', 'done'].includes(status)) {
+    throw new ApiError(400, 'INVALID_ACTION_ITEM_STATUS', 'Action item status must be open, in progress, or done.')
+  }
+
+  return {
+    siteId: requireSiteId(value.siteId),
+    title: `${value.title || ''}`.trim(),
+    source,
+    notes: `${value.notes || ''}`,
+    status,
+    attachmentIds: normalizeReferenceArray(value.attachmentIds),
+    date: normalizeText(value.date),
+  }
+}
+
+export function mapActionItemRow(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    code: row.code || '',
+    title: row.title || '',
+    source: row.source || 'PE',
+    notes: row.notes || '',
+    status: row.status || 'open',
+    attachmentIds: normalizeReferenceArray(row.attachment_ids),
+    date: row.event_date || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+  }
+}
+
 export function normalizeDocumentReferenceInput(value: Record<string, unknown>) {
   const siteId = requireSiteId(value.siteId)
   const title = normalizeText(value.title)

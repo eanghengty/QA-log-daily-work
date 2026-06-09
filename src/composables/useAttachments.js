@@ -2,8 +2,6 @@ import { db } from '../db/index.js'
 import { hasUsableAttachmentBlob, normalizeAttachmentRecord } from '../lib/attachmentBlobs.js'
 import { getCloudAttachment, isCloudTrackerEnabled, uploadCloudAttachment } from '../lib/trackerCloud.js'
 
-const LOCAL_ATTACHMENT_CLOUD_SYNC_KEY = 'qa_tracker_local_attachments_cloud_synced'
-
 export function useAttachments() {
   async function addAttachment(file) {
     const blob = file.blob || file
@@ -21,7 +19,10 @@ export function useAttachments() {
 
     if (isCloudTrackerEnabled()) {
       await uploadAttachmentToCloud(attachment)
-      await db.attachments.put(attachment)
+      await db.attachments.put({
+        ...attachment,
+        cloudSyncedAt: new Date().toISOString(),
+      })
       return attachment.id
     }
 
@@ -36,7 +37,10 @@ export function useAttachments() {
     const cloudAttachment = await getAttachmentFromCloud(id)
     if (!cloudAttachment) return repaired
 
-    await db.attachments.put(cloudAttachment)
+    await db.attachments.put({
+      ...cloudAttachment,
+      cloudSyncedAt: cloudAttachment.cloudSyncedAt || new Date().toISOString(),
+    })
     return cloudAttachment
   }
 
@@ -79,9 +83,6 @@ export async function uploadAttachmentToCloud(attachment) {
 
 export async function syncLocalAttachmentsToCloud({ force = false } = {}) {
   if (!isCloudTrackerEnabled()) return { uploaded: 0, skipped: 0, failed: 0, errors: [] }
-  if (!force && hasCompletedLocalAttachmentCloudSync()) {
-    return { uploaded: 0, skipped: 0, failed: 0, errors: [] }
-  }
 
   const attachments = await db.attachments.toArray()
   let uploaded = 0
@@ -90,6 +91,11 @@ export async function syncLocalAttachmentsToCloud({ force = false } = {}) {
   const errors = []
 
   for (const attachment of attachments) {
+    if (!force && attachment.cloudSyncedAt) {
+      skipped += 1
+      continue
+    }
+
     if (!hasUsableAttachmentBlob(attachment)) {
       skipped += 1
       continue
@@ -97,8 +103,15 @@ export async function syncLocalAttachmentsToCloud({ force = false } = {}) {
 
     try {
       const saved = await uploadAttachmentToCloud(attachment)
-      if (saved) uploaded += 1
-      else skipped += 1
+      if (saved) {
+        uploaded += 1
+        await db.attachments.put({
+          ...attachment,
+          cloudSyncedAt: new Date().toISOString(),
+        })
+      } else {
+        skipped += 1
+      }
     } catch (error) {
       failed += 1
       if (errors.length < 5) {
@@ -114,7 +127,6 @@ export async function syncLocalAttachmentsToCloud({ force = false } = {}) {
     }
   }
 
-  if (!failed) markLocalAttachmentCloudSyncComplete()
   return { uploaded, skipped, failed, errors }
 }
 
@@ -136,7 +148,12 @@ async function getAttachmentFromCloud(id) {
   try {
     const { attachment } = await getCloudAttachment(id)
     const normalized = await normalizeAttachmentRecord(attachment)
-    return hasUsableAttachmentBlob(normalized) ? normalized : null
+    return hasUsableAttachmentBlob(normalized)
+      ? {
+          ...normalized,
+          cloudSyncedAt: normalized.cloudSyncedAt || new Date().toISOString(),
+        }
+      : null
   } catch (error) {
     if (error?.code === 'TRACKER_SESSION_REQUIRED' || error?.status === 404) return null
     console.warn('Unable to load attachment from cloud.', error)
@@ -163,24 +180,6 @@ function blobToBase64(blob) {
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(blob)
   })
-}
-
-function hasCompletedLocalAttachmentCloudSync() {
-  if (typeof window === 'undefined') return true
-  try {
-    return window.localStorage.getItem(LOCAL_ATTACHMENT_CLOUD_SYNC_KEY) === '1'
-  } catch {
-    return true
-  }
-}
-
-function markLocalAttachmentCloudSyncComplete() {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(LOCAL_ATTACHMENT_CLOUD_SYNC_KEY, '1')
-  } catch {
-    // Ignore local sync marker failures.
-  }
 }
 
 function formatAttachmentSyncError(error) {

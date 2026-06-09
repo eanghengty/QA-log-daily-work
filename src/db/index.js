@@ -384,6 +384,33 @@ db.version(22).stores({
   snagReports: '++id, siteId, date, category',
 })
 
+db.version(23).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  actionItems: '++id, siteId, status, source',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id, name',
+  activityLog: '++id',
+  confirmSources: '++id, name',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+  pendingSummaries: 'siteId',
+  snagSummaries: 'siteId',
+  snagReports: '++id, siteId, date, category',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
   await ensureLookupSeedData()
@@ -420,6 +447,7 @@ async function cleanLegacyDemoData() {
     db.reports,
     db.issues,
     db.confirms,
+    db.actionItems,
     db.attachments,
     db.emailSettings,
     db.checklists,
@@ -442,6 +470,7 @@ async function cleanLegacyDemoData() {
         db.reports.clear(),
         db.issues.clear(),
         db.confirms.clear(),
+        db.actionItems.clear(),
         db.attachments.clear(),
         db.emailSettings.clear(),
         db.checklists.clear(),

@@ -69,6 +69,7 @@ export function useSites() {
     await db.reports.where('siteId').equals(id).delete()
     await db.issues.where('siteId').equals(id).delete()
     await db.confirms.where('siteId').equals(id).delete()
+    await db.actionItems.where('siteId').equals(id).delete()
     await db.checklists.where('siteId').equals(id).delete()
     await db.checklistLayouts.delete(id)
     await db.cableMatrixLayouts.delete(id)
