@@ -11,6 +11,9 @@ import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
 import { useDcplChecklist } from '../composables/useDcplChecklist.js'
 import { useCableChecklist } from '../composables/useCableChecklist.js'
 import { usePendingSummary } from '../composables/usePendingSummary.js'
+import { useSnagSummary } from '../composables/useSnagSummary.js'
+import { SNAG_SUMMARY_CATEGORIES } from '../composables/useSnagSummary.js'
+import { useSnagReports } from '../composables/useSnagReports.js'
 import { exportSite, importSite } from '../lib/backup.js'
 import { reportNotesHtmlFromText, reportNotesPlainTextFromHtml, sanitizeReportNotesHtml } from '../lib/reportNotes.js'
 import { formatSiteNameWithHopReviewer } from '../lib/siteHeader.js'
@@ -39,9 +42,12 @@ const { summary: antennaChecklistSummary } = useAntennaChecklist(siteId)
 const { summary: dcplChecklistSummary } = useDcplChecklist(siteId)
 const { summary: cableChecklistSummary } = useCableChecklist(siteId)
 const { summary: pendingProgressSummary } = usePendingSummary(siteId)
+const { sections: snagProgressSections, summary: snagProgressSummary } = useSnagSummary(siteId)
+const { snagReports, updateSnagReport, deleteSnagReport } = useSnagReports(siteId)
 const { logAction } = useActivityLog()
 
 const sortedReports = computed(() => [...(reports.value || [])].sort(compareReportsDesc))
+const sortedSnagReports = computed(() => [...(snagReports.value || [])].sort(compareReportsDesc))
 const latestReport = computed(() => sortedReports.value[0] || null)
 const reportsThisMonth = computed(() =>
   (reports.value || []).filter((report) => isInCurrentMonth(report.date)).length
@@ -113,6 +119,15 @@ const pendingProgressLabel = computed(() => {
 
   return `${pendingProgressSummary.value?.todo || 0} not done - ${pendingProgressSummary.value?.groupCount || 0} sub lists`
 })
+const snagProgressValue = computed(() =>
+  `${snagProgressSummary.value?.done || 0}/${snagProgressSummary.value?.total || 0}`
+)
+const snagProgressLabel = computed(() => {
+  if (!snagProgressSummary.value?.total) return 'no snag items yet'
+
+  const counts = countSnagCategories(snagProgressSections.value)
+  return `GDC ${counts.GDC.done}/${counts.GDC.total} - PTA ${counts.PTA.done}/${counts.PTA.total} - Nokia ${counts.Nokia.done}/${counts.Nokia.total}`
+})
 const topbarTitle = computed(() => formatSiteNameWithHopReviewer(site.value, siteId))
 const topbarSubtitle = computed(() =>
   `${site.value?.url || siteId} - ${latestReportLabel.value}`
@@ -158,6 +173,10 @@ function openPendingSummary() {
   router.push(buildSitePath(siteId, '/pending-summary'))
 }
 
+function openSnagSummary() {
+  router.push(buildSitePath(siteId, '/snag-summary'))
+}
+
 function openLatestEmailDraft() {
   if (!latestReport.value) return
   router.push(buildSitePath(siteId, `/report/${latestReport.value.id}/email`))
@@ -185,6 +204,11 @@ async function confirmDeleteReport(report) {
   await deleteReport(report.id)
   await logAction('Progress update deleted', `${report.date || 'unknown date'} — ${siteId}`)
 }
+async function confirmDeleteSnagReport(report) {
+  pendingDelete.value = null
+  await deleteSnagReport(report.id)
+  await logAction('Snag history deleted', `${report.date || 'unknown date'} - ${siteId}`)
+}
 async function confirmDeleteIssue(issue) {
   pendingDelete.value = null
   await deleteIssue(issue.id)
@@ -210,6 +234,11 @@ const showDocumentReferenceModal = ref(false)
 async function handleExportSite() {
   await exportSite(siteId)
   await logAction('Site exported', `${siteId} — ${site.value?.name || ''}`)
+}
+
+async function updateSnagHistoryCategory(report, category) {
+  await updateSnagReport(report.id, { category })
+  await logAction('Snag history category updated', `${siteId} - ${category}`)
 }
 
 async function handleExportSiteWorkbook() {
@@ -298,6 +327,26 @@ function formatAttachmentRestoreStatus(result = {}) {
   if (!result.attachmentsExpected) return ''
 
   return `${result.attachmentsRestored || 0}/${result.attachmentsExpected} attachment files restored.`
+}
+
+function countSnagCategories(sections = []) {
+  const counts = {
+    GDC: { done: 0, total: 0 },
+    PTA: { done: 0, total: 0 },
+    Nokia: { done: 0, total: 0 },
+  }
+
+  ;(sections || []).forEach((section) => {
+    ;(section.groups || []).forEach((group) => {
+      ;(group.items || []).forEach((item) => {
+        const category = ['GDC', 'PTA', 'Nokia'].includes(item.category) ? item.category : 'GDC'
+        counts[category].total += 1
+        if (item.status === 'done') counts[category].done += 1
+      })
+    })
+  })
+
+  return counts
 }
 
 function reportNotesPreviewHtml(report) {
@@ -422,6 +471,7 @@ function summarizeImportPayload(data) {
         />
         <StatCard label="Cable checklist" :value="cableChecklistValue" accent="var(--confirm)" :sub="cableChecklistLabel" />
         <StatCard label="Pending summary" :value="pendingProgressValue" accent="var(--confirm)" :sub="pendingProgressLabel" />
+        <StatCard label="Snag summary" :value="snagProgressValue" accent="var(--pending)" :sub="snagProgressLabel" />
       </div>
 
       <div class="col gap-3">
@@ -520,6 +570,15 @@ function summarizeImportPayload(data) {
             </div>
             <div class="small">generate layered pending lists</div>
           </button>
+          <button type="button" class="box p-4 col gap-2" style="flex: 1 1 180px; border-style: dashed; text-align: left; cursor: pointer" @click="openSnagSummary">
+            <div class="row items-center gap-2">
+              <div class="box center icon-box" style="border-color: var(--line-2)">
+                <MaterialIcon name="rule" />
+              </div>
+              <div class="title-md">Snag summary</div>
+            </div>
+            <div class="small">track snag categories</div>
+          </button>
         </div>
       </div>
 
@@ -528,10 +587,10 @@ function summarizeImportPayload(data) {
           <div class="title-lg">Progress history</div>
           <span class="small">viewing {{ sortedReports.length }}</span>
         </div>
-        <div class="box p-4 col">
+        <div class="box p-4 col report-history-list">
           <div v-if="sortedReports.length === 0" class="small">No progress updates saved yet.</div>
           <div
-            v-for="report in sortedReports.slice(0, 4)"
+            v-for="report in sortedReports"
             :key="report.id"
             class="row items-start gap-3"
             style="padding: 12px 0; border-bottom: 1px dashed var(--line)"
@@ -578,6 +637,56 @@ function summarizeImportPayload(data) {
                 </div>
               </template>
               <button v-else type="button" class="chip" style="color: var(--ink-3)" @click="requestDelete(`report-${report.id}`)">
+                <MaterialIcon name="delete" :size="14" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col gap-3">
+        <div class="between">
+          <div class="title-lg">Snag history</div>
+          <span class="small">viewing {{ sortedSnagReports.length }}</span>
+        </div>
+        <div class="box p-4 col report-history-list">
+          <div v-if="sortedSnagReports.length === 0" class="small">No snag history saved yet.</div>
+          <div
+            v-for="report in sortedSnagReports"
+            :key="report.id"
+            class="row items-start gap-3"
+            style="padding: 12px 0; border-bottom: 1px dashed var(--line)"
+          >
+            <div class="mono small" style="width: 90px">{{ report.date }}</div>
+            <div class="col grow gap-2">
+              <div class="row gap-2" style="flex-wrap: wrap">
+                <label class="chip chip-neutral">
+                  <MaterialIcon name="category" :size="14" />
+                  <select
+                    class="snag-history-category-select"
+                    :value="report.category"
+                    @change="updateSnagHistoryCategory(report, $event.target.value)"
+                  >
+                    <option v-for="category in SNAG_SUMMARY_CATEGORIES" :key="category" :value="category">
+                      {{ category }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+              <div
+                class="report-history-notes"
+                v-html="reportNotesPreviewHtml(report)"
+              />
+            </div>
+            <div class="col gap-1" style="flex-shrink: 0; align-self: center">
+              <template v-if="pendingDelete === `snag-${report.id}`">
+                <div class="tiny" style="color: var(--issue); text-align: center; white-space: nowrap">Delete?</div>
+                <div class="row gap-1">
+                  <button type="button" class="chip chip-issue" style="font-size: 11px" @click="confirmDeleteSnagReport(report)">Yes</button>
+                  <button type="button" class="chip" style="font-size: 11px" @click="cancelDelete">No</button>
+                </div>
+              </template>
+              <button v-else type="button" class="chip" style="color: var(--ink-3)" @click="requestDelete(`snag-${report.id}`)">
                 <MaterialIcon name="delete" :size="14" />
               </button>
             </div>
@@ -693,6 +802,21 @@ function summarizeImportPayload(data) {
 <style scoped>
 .scroll {
   overflow: auto;
+}
+
+.report-history-list {
+  max-height: 520px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.snag-history-category-select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  outline: none;
 }
 
 .report-history-notes {

@@ -1,13 +1,14 @@
-import { PENDING_SUMMARY_STATUS } from '../composables/usePendingSummary.js'
+import { SNAG_SUMMARY_STATUS } from '../composables/useSnagSummary.js'
 
-export function buildPendingSummaryProgressText(sections) {
+export function buildSnagSummaryProgressText(sections, category = '') {
   const orderedSections = toOrderedList(sections)
   const pendingLines = []
   const doneLines = []
+  const categoryFilter = String(category || '').trim()
 
   orderedSections.forEach((section, sectionIndex) => {
     const orderedGroups = toOrderedList(section.groups)
-    const sectionItems = orderedGroups.flatMap((group) => toOrderedList(group.items))
+    const sectionItems = orderedGroups.flatMap((group) => filterByCategory(toOrderedList(group.items), categoryFilter))
     const sectionDone = sectionItems.filter(isDoneItem).length
     const sectionTodo = sectionItems.length - sectionDone
     const pendingMainLine =
@@ -18,7 +19,7 @@ export function buildPendingSummaryProgressText(sections) {
     const doneSectionLines = []
 
     orderedGroups.forEach((group, groupIndex) => {
-      const orderedItems = toOrderedList(group.items)
+      const orderedItems = filterByCategory(toOrderedList(group.items), categoryFilter)
       const groupLine = `  ${formatGroupCode(sectionIndex, groupIndex, group.code)} ${formatTitle(group.title, 'Sub list')}`
       const pendingGroupItems = orderedItems.filter((item) => !isDoneItem(item))
       const doneGroupItems = orderedItems.filter(isDoneItem)
@@ -33,7 +34,7 @@ export function buildPendingSummaryProgressText(sections) {
       if (doneGroupItems.length) {
         doneSectionLines.push(groupLine)
         doneGroupItems.forEach((item) => {
-          doneSectionLines.push(`    - ${formatTitle(item.title, 'Pending item')} (done)`)
+          doneSectionLines.push(`    - ${formatTitle(item.title, 'Snag item')} (done)`)
         })
       }
     })
@@ -51,7 +52,7 @@ export function buildPendingSummaryProgressText(sections) {
   const hasDoneItems = doneLines.length > 0
 
   if (!hasPendingItems && !hasDoneItems) {
-    return 'No pending items.'
+    return 'No Snag items.'
   }
 
   if (!hasDoneItems) {
@@ -63,6 +64,12 @@ export function buildPendingSummaryProgressText(sections) {
   }
 
   return [...pendingLines, '', 'Pending clear today:', ...doneLines].join('\n')
+}
+
+function filterByCategory(items, category) {
+  if (!category) return items
+  const normalized = category.toLowerCase()
+  return items.filter((item) => String(item?.category || 'GDC').trim().toLowerCase() === normalized)
 }
 
 function toOrderedList(collection) {
@@ -97,9 +104,9 @@ function formatDoneCount(count) {
 }
 
 function formatPendingItemLabel(item) {
-  const title = formatTitle(item?.title, 'Pending item')
+  const title = formatTitle(item?.title, 'Snag item')
   const status = String(item?.status || '').trim().toLowerCase()
-  if (status === PENDING_SUMMARY_STATUS.PARTIAL) {
+  if (status === SNAG_SUMMARY_STATUS.PARTIAL) {
     const comment = String(item?.partialComment || '').trim()
     return comment ? `${title} (partial done: ${comment})` : `${title} (partial done)`
   }
@@ -107,5 +114,6 @@ function formatPendingItemLabel(item) {
 }
 
 function isDoneItem(item) {
-  return String(item?.status || '').trim().toLowerCase() === PENDING_SUMMARY_STATUS.DONE
+  return String(item?.status || '').trim().toLowerCase() === SNAG_SUMMARY_STATUS.DONE
 }
+

@@ -2,14 +2,17 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  PENDING_SUMMARY_STATUS,
-  summarizePendingSummary,
-  usePendingSummary,
-} from '../composables/usePendingSummary.js'
+  SNAG_SUMMARY_CATEGORIES,
+  SNAG_SUMMARY_STATUS,
+  summarizeSnagSummary,
+  useSnagSummary,
+} from '../composables/useSnagSummary.js'
 import { useSites } from '../composables/useSites.js'
+import { useSnagReports } from '../composables/useSnagReports.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { getActivityActorLabel } from '../composables/useActivityActor.js'
-import { buildPendingSummaryProgressText } from '../lib/pendingSummaryExport.js'
+import { buildSnagSummaryProgressText } from '../lib/snagSummaryExport.js'
+import { reportNotesHtmlFromText } from '../lib/reportNotes.js'
 import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
@@ -36,7 +39,9 @@ const {
   renameGroup,
   setItemStatus,
   setItemChecking,
-} = usePendingSummary(siteId)
+  setItemCategory,
+} = useSnagSummary(siteId)
+const { addSnagReport } = useSnagReports(siteId)
 const { logAction } = useActivityLog()
 
 const sourceText = ref('')
@@ -48,12 +53,14 @@ const isGenerateCardCollapsed = ref(false)
 const collapsedSectionIds = ref(new Set())
 const activeHistoryItem = ref(null)
 const activePartialItem = ref(null)
+const isGenerateCategoryModalOpen = ref(false)
 const partialCommentDraft = ref('')
 const partialCommentError = ref('')
 const newSectionCode = ref('')
 const newSectionTitle = ref('')
 const newGroupDrafts = ref({})
 const newItemDrafts = ref({})
+const exportCategory = ref(SNAG_SUMMARY_CATEGORIES[0])
 
 watch(
   () => board.value?.sourceText,
@@ -64,11 +71,11 @@ watch(
   { immediate: true }
 )
 
-const title = computed(() => (site.value ? `${site.value.name} pending summary` : 'Pending summary'))
-const hasGeneratedPending = computed(() => sections.value.length > 0)
+const title = computed(() => (site.value ? `${site.value.name} snag summary` : 'Snag summary'))
+const hasGeneratedSnag = computed(() => sections.value.length > 0)
 const subtitle = computed(() => {
   const location = site.value?.url || siteId
-  if (!summary.value.total) return `${location} - no pending items generated yet`
+  if (!summary.value.total) return `${location} - no snag items generated yet`
   return `${location} - ${summary.value.done} done, ${summary.value.todo} not done`
 })
 
@@ -86,23 +93,36 @@ function showStatus(message, tone = 'confirm') {
 }
 
 async function handleGenerate() {
+  isGenerateCategoryModalOpen.value = true
+}
+
+async function generateWithCategory(category) {
+  const nextCategory = SNAG_SUMMARY_CATEGORIES.includes(category) ? category : SNAG_SUMMARY_CATEGORIES[0]
+  exportCategory.value = nextCategory
+  isGenerateCategoryModalOpen.value = false
   isGenerating.value = true
 
   try {
-    const nextSummary = await generateFromText(sourceText.value)
+    const nextSummary = await generateFromText(sourceText.value, { category: nextCategory })
 
     if (!nextSummary.total) {
-      await logAction('Pending summary cleared', `${siteId} - generated list cleared`)
-      showStatus('Pending summary cleared.')
+      await logAction('snag summary cleared', `${siteId} - generated list cleared`)
+      showStatus('snag summary cleared.')
       return
     }
 
     await logAction(
-      'Pending summary generated',
-      `${siteId} - ${nextSummary.sectionCount} main lists, ${nextSummary.groupCount} sub lists, ${nextSummary.total} pending items`
+      'snag summary generated',
+      `${siteId} - ${nextCategory} - ${nextSummary.sectionCount} main lists, ${nextSummary.groupCount} sub lists, ${nextSummary.total} snag items`
     )
+    const duplicateMessage = nextSummary.skippedDuplicates
+      ? ` ${nextSummary.skippedDuplicates} duplicate item${nextSummary.skippedDuplicates === 1 ? '' : 's'} skipped.`
+      : ''
+    if (nextSummary.skippedDuplicates) {
+      window.alert(`${nextSummary.skippedDuplicates} duplicate snag item${nextSummary.skippedDuplicates === 1 ? '' : 's'} already existed and were skipped.`)
+    }
     showStatus(
-      `Generated ${nextSummary.sectionCount} main lists, ${nextSummary.groupCount} sub lists, and ${nextSummary.total} pending items.`
+      `Generated ${nextCategory} snag summary: ${nextSummary.sectionCount} main lists, ${nextSummary.groupCount} sub lists, and ${nextSummary.total} snag items.${duplicateMessage}`
     )
   } catch (error) {
     showStatus(`Generate failed: ${error.message}`, 'issue')
@@ -111,24 +131,38 @@ async function handleGenerate() {
   }
 }
 
+function closeGenerateCategoryModal() {
+  isGenerateCategoryModalOpen.value = false
+}
+
 async function handleExportToNewUpdate() {
   if (!summary.value.total) {
-    showStatus('No pending summary items to export yet.', 'issue')
+    showStatus('No snag summary items to export yet.', 'issue')
     return
   }
 
   try {
-    const exportText = buildPendingSummaryProgressText(sections.value)
-    await router.push({
-      path: buildSitePath(siteId, '/report/new'),
-      state: {
-        reportPrefillNotes: exportText,
-      },
+    const exportText = buildSnagSummaryProgressText(sections.value, exportCategory.value)
+    if (exportText === 'No pending items.' || exportText === 'No snag items.' || exportText === 'No Snag items.') {
+      showStatus(`No ${exportCategory.value} snag items to export yet.`, 'issue')
+      return
+    }
+
+    const now = new Date()
+    await addSnagReport({
+      siteId,
+      category: exportCategory.value,
+      date: now.toISOString().split('T')[0],
+      time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      notes: exportText,
+      notesRich: reportNotesHtmlFromText(exportText),
     })
     logAction(
-      'Pending summary exported to new update',
-      `${siteId} - ${summary.value.done}/${summary.value.total} done items included`
+      'Snag summary exported to snag history',
+      `${siteId} - ${exportCategory.value} - ${summary.value.done}/${summary.value.total} done items included`
     ).catch(() => {})
+    showStatus(`${exportCategory.value} snag history saved.`)
+    goBack()
   } catch (error) {
     showStatus(`Export failed: ${error.message}`, 'issue')
   }
@@ -148,7 +182,7 @@ async function handleAddSection() {
       code: newSectionCode.value,
       title: newSectionTitle.value,
     })
-    await logAction('Pending main list added', `${siteId} - ${newSectionTitle.value.trim()}`)
+    await logAction('snag main list added', `${siteId} - ${newSectionTitle.value.trim()}`)
     showStatus('Main list added.')
     newSectionCode.value = ''
     newSectionTitle.value = ''
@@ -162,7 +196,7 @@ async function handleAddGroup(section) {
 
   try {
     await addGroup(section.id, draft)
-    await logAction('Pending sub list added', `${siteId} - ${section.title} - ${String(draft.title || '').trim()}`)
+    await logAction('snag sub list added', `${siteId} - ${section.title} - ${String(draft.title || '').trim()}`)
     showStatus('Sub list added.')
     newGroupDrafts.value = {
       ...newGroupDrafts.value,
@@ -178,8 +212,8 @@ async function handleAddItem(section, group) {
 
   try {
     await addItem(section.id, group.id, draft)
-    await logAction('Pending item added', `${siteId} - ${group.title} - ${String(draft.title || '').trim()}`)
-    showStatus('Pending item added.')
+    await logAction('snag item added', `${siteId} - ${group.title} - ${String(draft.title || '').trim()}`)
+    showStatus('snag item added.')
     newItemDrafts.value = {
       ...newItemDrafts.value,
       [group.id]: { title: '' },
@@ -192,7 +226,7 @@ async function handleAddItem(section, group) {
 async function handleDeleteSection(section) {
   try {
     await deleteSection(section.id)
-    await logAction('Pending main list deleted', `${siteId} - ${section.title}`)
+    await logAction('snag main list deleted', `${siteId} - ${section.title}`)
     showStatus('Main list deleted.')
   } catch (error) {
     showStatus(error.message, 'issue')
@@ -207,7 +241,7 @@ async function handleRenameSection(section) {
 
   try {
     await renameSection(section.id, { title: nextTitle, code: nextCode })
-    await logAction('Pending main list renamed', `${siteId} - ${nextTitle.trim()}`)
+    await logAction('Snag main list renamed', `${siteId} - ${nextTitle.trim()}`)
     showStatus('Main list renamed.')
   } catch (error) {
     showStatus(error.message, 'issue')
@@ -217,7 +251,7 @@ async function handleRenameSection(section) {
 async function handleDeleteGroup(section, group) {
   try {
     await deleteGroup(section.id, group.id)
-    await logAction('Pending sub list deleted', `${siteId} - ${section.title} - ${group.title}`)
+    await logAction('snag sub list deleted', `${siteId} - ${section.title} - ${group.title}`)
     showStatus('Sub list deleted.')
   } catch (error) {
     showStatus(error.message, 'issue')
@@ -232,7 +266,7 @@ async function handleRenameGroup(section, group) {
 
   try {
     await renameGroup(section.id, group.id, { title: nextTitle, code: nextCode })
-    await logAction('Pending sub list renamed', `${siteId} - ${section.title} - ${nextTitle.trim()}`)
+    await logAction('Snag sub list renamed', `${siteId} - ${section.title} - ${nextTitle.trim()}`)
     showStatus('Sub list renamed.')
   } catch (error) {
     showStatus(error.message, 'issue')
@@ -242,8 +276,8 @@ async function handleRenameGroup(section, group) {
 async function handleDeleteItem(section, group, item) {
   try {
     await deleteItem(section.id, group.id, item.id)
-    await logAction('Pending item deleted', `${siteId} - ${group.title} - ${item.title}`)
-    showStatus('Pending item deleted.')
+    await logAction('snag item deleted', `${siteId} - ${group.title} - ${item.title}`)
+    showStatus('snag item deleted.')
   } catch (error) {
     showStatus(error.message, 'issue')
   }
@@ -261,12 +295,12 @@ function toggleSection(sectionId) {
 }
 
 function getSectionSummary(section) {
-  return summarizePendingSummary([section])
+  return summarizeSnagSummary([section])
 }
 
 function getGroupSummary(group) {
   const items = group.items || []
-  const done = items.filter((item) => item.status === PENDING_SUMMARY_STATUS.DONE).length
+  const done = items.filter((item) => item.status === SNAG_SUMMARY_STATUS.DONE).length
   return {
     total: items.length,
     done,
@@ -276,13 +310,13 @@ function getGroupSummary(group) {
 
 async function toggleItem(section, group, item) {
   const nextStatus =
-    item.status === PENDING_SUMMARY_STATUS.DONE
-      ? PENDING_SUMMARY_STATUS.TODO
-      : PENDING_SUMMARY_STATUS.DONE
+    item.status === SNAG_SUMMARY_STATUS.DONE
+      ? SNAG_SUMMARY_STATUS.TODO
+      : SNAG_SUMMARY_STATUS.DONE
 
   await setItemStatus(section.id, group.id, item.id, nextStatus)
   await logAction(
-    nextStatus === PENDING_SUMMARY_STATUS.DONE ? 'Pending item done' : 'Pending item not done',
+    nextStatus === SNAG_SUMMARY_STATUS.DONE ? 'snag item done' : 'snag item not done',
     `${siteId} - ${item.title}`
   )
 }
@@ -295,9 +329,9 @@ function openPartialDoneModal(section, group, item) {
     groupTitle: group.title,
     itemId: item.id,
     itemTitle: item.title,
-    isExistingPartial: item.status === PENDING_SUMMARY_STATUS.PARTIAL,
+    isExistingPartial: item.status === SNAG_SUMMARY_STATUS.PARTIAL,
   }
-  partialCommentDraft.value = item.status === PENDING_SUMMARY_STATUS.PARTIAL ? String(item.partialComment || '') : ''
+  partialCommentDraft.value = item.status === SNAG_SUMMARY_STATUS.PARTIAL ? String(item.partialComment || '') : ''
   partialCommentError.value = ''
 }
 
@@ -320,10 +354,10 @@ async function savePartialDone() {
     activePartialItem.value.sectionId,
     activePartialItem.value.groupId,
     activePartialItem.value.itemId,
-    PENDING_SUMMARY_STATUS.PARTIAL,
+    SNAG_SUMMARY_STATUS.PARTIAL,
     { partialComment: nextComment }
   )
-  await logAction('Pending item partial done', `${siteId} - ${activePartialItem.value.itemTitle}`)
+  await logAction('snag item partial done', `${siteId} - ${activePartialItem.value.itemTitle}`)
   closePartialDoneModal()
 }
 
@@ -334,9 +368,9 @@ async function clearPartialDone() {
     activePartialItem.value.sectionId,
     activePartialItem.value.groupId,
     activePartialItem.value.itemId,
-    PENDING_SUMMARY_STATUS.TODO
+    SNAG_SUMMARY_STATUS.TODO
   )
-  await logAction('Pending item partial removed', `${siteId} - ${activePartialItem.value.itemTitle}`)
+  await logAction('snag item partial removed', `${siteId} - ${activePartialItem.value.itemTitle}`)
   closePartialDoneModal()
 }
 
@@ -345,9 +379,14 @@ async function toggleItemChecking(section, group, item) {
 
   await setItemChecking(section.id, group.id, item.id, nextCheckingState)
   await logAction(
-    nextCheckingState ? 'Pending item flagged for checking' : 'Pending item unflagged from checking',
+    nextCheckingState ? 'snag item flagged for checking' : 'snag item unflagged from checking',
     `${siteId} - ${item.title}`
   )
+}
+
+async function updateItemCategory(section, group, item, category) {
+  await setItemCategory(section.id, group.id, item.id, category)
+  await logAction('Snag item category updated', `${siteId} - ${item.title} - ${category}`)
 }
 
 function openHistoryModal(section, group, item) {
@@ -398,8 +437,8 @@ function setItemDraft(groupId, value) {
 }
 
 function getStatusLabel(status) {
-  if (status === PENDING_SUMMARY_STATUS.DONE) return 'Done'
-  if (status === PENDING_SUMMARY_STATUS.PARTIAL) return 'Partial done'
+  if (status === SNAG_SUMMARY_STATUS.DONE) return 'Done'
+  if (status === SNAG_SUMMARY_STATUS.PARTIAL) return 'Partial done'
   return 'Not done'
 }
 
@@ -411,8 +450,8 @@ function getLastActionLabel(item) {
 }
 
 function getHistoryLabel(entry) {
-  if (entry?.toStatus === PENDING_SUMMARY_STATUS.PARTIAL) return 'Marked as partial done'
-  if (entry?.toStatus === PENDING_SUMMARY_STATUS.DONE) return 'Ticked as done'
+  if (entry?.toStatus === SNAG_SUMMARY_STATUS.PARTIAL) return 'Marked as partial done'
+  if (entry?.toStatus === SNAG_SUMMARY_STATUS.DONE) return 'Ticked as done'
   return 'Returned to not done'
 }
 
@@ -456,17 +495,17 @@ function formatDateTime(value) {
 
         <div v-if="!isSummaryHidden" class="row gap-3" style="flex-wrap: wrap; margin-bottom: 16px">
           <StatCard label="Main lists" :value="summary.sectionCount" accent="var(--confirm)" :sub="summary.total ? `${summary.completion}% complete` : 'nothing generated yet'" />
-          <StatCard label="Sub lists" :value="summary.groupCount" accent="var(--confirm)" :sub="summary.total ? `${summary.total} pending items` : 'waiting for pasted text'" />
+          <StatCard label="Sub lists" :value="summary.groupCount" accent="var(--confirm)" :sub="summary.total ? `${summary.total} snag items` : 'waiting for pasted text'" />
           <StatCard label="Done" :value="summary.done" accent="var(--confirm)" :sub="summary.total ? 'ticked complete' : 'no actions yet'" />
-          <StatCard label="Not done" :value="summary.todo" accent="var(--pending)" :sub="summary.total ? 'still pending' : 'no actions yet'" />
+          <StatCard label="Not done" :value="summary.todo" accent="var(--pending)" :sub="summary.total ? 'still open' : 'no actions yet'" />
         </div>
 
-        <div v-if="!hasGeneratedPending" class="box p-4 col gap-3">
+        <div class="box p-4 col gap-3">
           <div class="between gap-3" style="flex-wrap: wrap">
             <div class="col gap-1">
-              <div class="title-md">Generate pending summary</div>
+              <div class="title-md">Generate snag summary</div>
               <div class="small">
-                Paste numbered and bulleted text here. `1.` becomes a main list, `1.1` becomes a sub list, and `-` becomes a trackable pending item.
+                Paste numbered and bulleted text here. `1.` becomes a main list, `1.1` becomes a sub list, and `-` becomes a trackable snag item. New generates append to the current snag board and skip duplicate item names.
               </div>
             </div>
             <div class="row gap-2" style="flex-wrap: wrap">
@@ -491,22 +530,15 @@ function formatDateTime(value) {
           />
         </div>
 
-        <div v-else class="box-soft p-4 col gap-2">
-          <div class="title-md">Pending summary already generated</div>
-          <div class="small">
-            Delete all main lists first if you want to generate a new pending summary from pasted text.
-          </div>
-        </div>
-
         <div class="box-soft p-4 col gap-3" style="margin-top: 12px">
           <div class="col gap-1">
             <div class="title-md">Add main list manually</div>
-            <div class="small">Use this if you want to build the pending summary without pasting sample text first.</div>
+            <div class="small">Use this if you want to build the snag summary without pasting sample text first.</div>
           </div>
-          <div class="row gap-2 pending-add-row">
+          <div class="row gap-2 snag-add-row">
             <input
               v-model="newSectionCode"
-              class="field mono pending-code-field"
+              class="field mono snag-code-field"
               type="text"
               placeholder="Code e.g. 1"
             />
@@ -527,18 +559,26 @@ function formatDateTime(value) {
 
       <div class="col gap-4">
         <div class="between">
-          <div class="title-lg">Pending list board</div>
+          <div class="title-lg">Snag list board</div>
           <div class="row gap-2" style="flex-wrap: wrap; align-items: center">
             <span class="small">{{ summary.total }} items</span>
+            <label class="chip chip-neutral">
+              <MaterialIcon name="category" :size="14" />
+              <select v-model="exportCategory" class="snag-category-select">
+                <option v-for="category in SNAG_SUMMARY_CATEGORIES" :key="category" :value="category">
+                  {{ category }}
+                </option>
+              </select>
+            </label>
             <button type="button" class="btn btn-primary" :disabled="!summary.total" @click="handleExportToNewUpdate">
               <MaterialIcon name="history_edu" />
-              Export to new update
+              Save snag history
             </button>
           </div>
         </div>
 
         <div v-if="!sections.length" class="box-dash p-4 small">
-          No pending summary list yet. Paste your text in the box above and click Generate to build the main list and sub list structure.
+          No snag summary list yet. Paste your text in the box above and click Generate to build the main list and sub list structure.
         </div>
 
         <div v-else class="col gap-4">
@@ -586,10 +626,10 @@ function formatDateTime(value) {
             <div v-if="!isCollapsed(section.id)" class="col gap-3">
               <div class="box-dash p-3 col gap-2">
                 <div class="label">Add sub list</div>
-                <div class="row gap-2 pending-add-row">
+                <div class="row gap-2 snag-add-row">
                   <input
                     :value="getGroupDraft(section.id).code"
-                    class="field mono pending-code-field"
+                    class="field mono snag-code-field"
                     type="text"
                     placeholder="Code e.g. 1.1"
                     @input="setGroupDraft(section.id, 'code', $event.target.value)"
@@ -648,13 +688,13 @@ function formatDateTime(value) {
                 </div>
 
                 <div class="box-dash p-3 col gap-2">
-                  <div class="label">Add pending item</div>
-                  <div class="row gap-2 pending-add-row">
+                  <div class="label">Add snag item</div>
+                  <div class="row gap-2 snag-add-row">
                     <input
                       :value="getItemDraft(group.id).title"
                       class="field grow"
                       type="text"
-                      placeholder="Pending item name"
+                      placeholder="snag item name"
                       @input="setItemDraft(group.id, $event.target.value)"
                       @keydown.enter.prevent="handleAddItem(section, group)"
                     />
@@ -669,45 +709,57 @@ function formatDateTime(value) {
                   <div
                     v-for="item in group.items"
                     :key="item.id"
-                    class="box p-3 row gap-3 pending-item-row"
+                    class="box p-3 row gap-3 snag-item-row"
                     :class="{ 'is-checking': item.isChecking }"
                   >
-                    <label class="row gap-2 grow pending-item-check">
+                    <label class="row gap-2 grow snag-item-check">
                       <input
                         type="checkbox"
-                        :checked="item.status === PENDING_SUMMARY_STATUS.DONE"
+                        :checked="item.status === SNAG_SUMMARY_STATUS.DONE"
                         @change="toggleItem(section, group, item)"
                       />
                       <div class="col gap-1 grow">
-                        <div class="pending-item-title" :class="{ 'is-done': item.status === PENDING_SUMMARY_STATUS.DONE }">
+                        <div class="snag-item-title" :class="{ 'is-done': item.status === SNAG_SUMMARY_STATUS.DONE }">
                           {{ item.title }}
                         </div>
-                        <div v-if="item.status === PENDING_SUMMARY_STATUS.PARTIAL && item.partialComment" class="tiny pending-partial-comment">
+                        <div v-if="item.status === SNAG_SUMMARY_STATUS.PARTIAL && item.partialComment" class="tiny snag-partial-comment">
                           Partial done: {{ item.partialComment }}
                         </div>
                         <div class="small">{{ getLastActionLabel(item) }}</div>
                       </div>
                     </label>
 
-                    <div class="row gap-2 pending-item-actions" style="flex-wrap: wrap">
+                    <div class="row gap-2 snag-item-actions" style="flex-wrap: wrap">
                       <span
                         class="chip"
-                        :class="item.status === PENDING_SUMMARY_STATUS.DONE ? 'chip-confirm' : item.status === PENDING_SUMMARY_STATUS.PARTIAL ? 'chip-partial' : 'chip-pending'"
+                        :class="item.status === SNAG_SUMMARY_STATUS.DONE ? 'chip-confirm' : item.status === SNAG_SUMMARY_STATUS.PARTIAL ? 'chip-partial' : 'chip-pending'"
                       >
                         <MaterialIcon
-                          :name="item.status === PENDING_SUMMARY_STATUS.DONE ? 'check_circle' : item.status === PENDING_SUMMARY_STATUS.PARTIAL ? 'pending' : 'radio_button_unchecked'"
+                          :name="item.status === SNAG_SUMMARY_STATUS.DONE ? 'check_circle' : item.status === SNAG_SUMMARY_STATUS.PARTIAL ? 'pending' : 'radio_button_unchecked'"
                           :size="14"
                         />
                         {{ getStatusLabel(item.status) }}
                       </span>
+                      <label class="chip chip-neutral">
+                        <MaterialIcon name="category" :size="14" />
+                        <select
+                          class="snag-category-select"
+                          :value="item.category"
+                          @change="updateItemCategory(section, group, item, $event.target.value)"
+                        >
+                          <option v-for="category in SNAG_SUMMARY_CATEGORIES" :key="category" :value="category">
+                            {{ category }}
+                          </option>
+                        </select>
+                      </label>
                       <button
                         type="button"
                         class="chip"
-                        :class="item.status === PENDING_SUMMARY_STATUS.PARTIAL ? 'chip-partial' : 'chip-neutral'"
+                        :class="item.status === SNAG_SUMMARY_STATUS.PARTIAL ? 'chip-partial' : 'chip-neutral'"
                         @click="openPartialDoneModal(section, group, item)"
                       >
-                        <MaterialIcon :name="item.status === PENDING_SUMMARY_STATUS.PARTIAL ? 'edit_note' : 'assignment_turned_in'" :size="14" />
-                        {{ item.status === PENDING_SUMMARY_STATUS.PARTIAL ? 'Edit partial' : 'Partial done' }}
+                        <MaterialIcon :name="item.status === SNAG_SUMMARY_STATUS.PARTIAL ? 'edit_note' : 'assignment_turned_in'" :size="14" />
+                        {{ item.status === SNAG_SUMMARY_STATUS.PARTIAL ? 'Edit partial' : 'Partial done' }}
                       </button>
                       <button
                         type="button"
@@ -748,13 +800,51 @@ function formatDateTime(value) {
 
     <Teleport to="body">
       <div
+        v-if="isGenerateCategoryModalOpen"
+        class="snag-summary-overlay"
+        @click.self="closeGenerateCategoryModal"
+      >
+        <div class="snag-summary-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Select snag type</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeGenerateCategoryModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="small">
+            Choose the snag category for this generated batch. New items will be appended to the current snag board, and duplicates will be skipped.
+          </div>
+
+          <div class="row gap-2" style="flex-wrap: wrap">
+            <button
+              v-for="category in SNAG_SUMMARY_CATEGORIES"
+              :key="category"
+              type="button"
+              class="btn"
+              :class="exportCategory === category ? 'btn-primary' : ''"
+              :disabled="isGenerating"
+              @click="generateWithCategory(category)"
+            >
+              <MaterialIcon name="category" :size="16" />
+              {{ category }}
+            </button>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-ghost" :disabled="isGenerating" @click="closeGenerateCategoryModal">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div
         v-if="activeHistoryItem"
-        class="pending-summary-overlay"
+        class="snag-summary-overlay"
         @click.self="closeHistoryModal"
       >
-        <div class="pending-summary-modal box col gap-4">
+        <div class="snag-summary-modal box col gap-4">
           <div class="between" style="align-items: center">
-            <div class="title-md">Pending item history</div>
+            <div class="title-md">snag item history</div>
             <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeHistoryModal">
               <MaterialIcon name="close" :size="20" />
             </button>
@@ -771,7 +861,7 @@ function formatDateTime(value) {
           </div>
 
           <div class="col gap-2">
-            <div class="label">Pending item</div>
+            <div class="label">snag item</div>
             <div class="box-soft p-3 small" style="color: var(--ink)">{{ activeHistoryItem.itemTitle }}</div>
           </div>
 
@@ -810,10 +900,10 @@ function formatDateTime(value) {
 
       <div
         v-if="activePartialItem"
-        class="pending-summary-overlay"
+        class="snag-summary-overlay"
         @click.self="closePartialDoneModal"
       >
-        <div class="pending-summary-modal box col gap-4">
+        <div class="snag-summary-modal box col gap-4">
           <div class="between" style="align-items: center">
             <div class="title-md">Partial done comment</div>
             <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closePartialDoneModal">
@@ -832,7 +922,7 @@ function formatDateTime(value) {
           </div>
 
           <div class="col gap-2">
-            <div class="label">Pending item</div>
+            <div class="label">snag item</div>
             <div class="box-soft p-3 small" style="color: var(--ink)">{{ activePartialItem.itemTitle }}</div>
           </div>
 
@@ -869,7 +959,7 @@ function formatDateTime(value) {
 </template>
 
 <style scoped>
-.pending-summary-overlay {
+.snag-summary-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
@@ -880,7 +970,7 @@ function formatDateTime(value) {
   padding: 16px;
 }
 
-.pending-summary-modal {
+.snag-summary-modal {
   background: var(--paper);
   width: 100%;
   max-width: 520px;
@@ -889,37 +979,37 @@ function formatDateTime(value) {
   padding: 24px;
 }
 
-.pending-item-row {
+.snag-item-row {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
 }
 
-.pending-item-row.is-checking {
+.snag-item-row.is-checking {
   border-color: #d6a13a;
   background: #fff6de;
 }
 
-.pending-item-check {
+.snag-item-check {
   align-items: flex-start;
   min-width: 220px;
 }
 
-.pending-item-title {
+.snag-item-title {
   font-size: 13px;
   color: var(--ink);
 }
 
-.pending-item-title.is-done {
+.snag-item-title.is-done {
   text-decoration: line-through;
   color: var(--ink-3);
 }
 
-.pending-partial-comment {
+.snag-partial-comment {
   color: #8a5a00;
 }
 
-.pending-item-actions {
+.snag-item-actions {
   align-items: center;
 }
 
@@ -935,12 +1025,22 @@ function formatDateTime(value) {
   color: #8a4f00;
 }
 
-.pending-add-row {
+.snag-category-select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  outline: none;
+}
+
+.snag-add-row {
   flex-wrap: wrap;
 }
 
-.pending-code-field {
+.snag-code-field {
   width: 120px;
   flex: 0 0 120px;
 }
 </style>
+

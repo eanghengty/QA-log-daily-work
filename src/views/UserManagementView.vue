@@ -106,6 +106,24 @@ function formatDate(value) {
   }).format(date)
 }
 
+function formatLastSeen(value) {
+  if (!value) return 'Never'
+  return formatDateTime(value)
+}
+
+function formatDateTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+
+  return new Intl.DateTimeFormat('en', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 watch(
   users,
   () => {
@@ -283,6 +301,7 @@ watch(
             <div class="label" style="flex: 1.4 1 0%">Field user</div>
             <div class="label" style="flex: 1.2 1 0%">Email</div>
             <div class="label" style="flex: 0.8 1 0%">Role</div>
+            <div class="label" style="flex: 0.9 1 0%">Last seen</div>
             <div class="label" style="flex: 0.8 1 0%">Created</div>
             <div class="label" style="width: 120px">Save</div>
           </div>
@@ -298,56 +317,60 @@ watch(
             <div class="small">Create the next field-user account from the form above.</div>
           </div>
 
-          <div
-            v-for="entry in users"
-            :key="entry.id"
-            class="row items-center"
-            style="padding: 12px 16px; border-bottom: 1px dashed var(--line); gap: 12px"
-          >
-            <div class="col" style="flex: 1.4 1 0%; min-width: 0">
-              <div class="title-md" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
-                {{ entry.fullName || 'Unnamed field user' }}
+          <div v-else class="field-user-list">
+            <div
+              v-for="entry in users"
+              :key="entry.id"
+              class="row items-center"
+              style="padding: 12px 16px; border-bottom: 1px dashed var(--line); gap: 12px"
+            >
+              <div class="col" style="flex: 1.4 1 0%; min-width: 0">
+                <div class="title-md" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
+                  {{ entry.fullName || 'Unnamed field user' }}
+                </div>
+                <div class="tiny" v-if="entry.id === user?.id">Signed in now</div>
               </div>
-              <div class="tiny" v-if="entry.id === user?.id">Signed in now</div>
-            </div>
 
-            <div class="small" style="flex: 1.2 1 0%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
-              {{ entry.email }}
-            </div>
-
-            <div class="col gap-1" style="flex: 0.8 1 0%">
-              <select
-                v-model="roleDrafts[entry.id]"
-                class="field"
-                :disabled="savingRoleId === entry.id"
-                @change="clearFeedback"
-              >
-                <option v-for="option in ROLE_OPTIONS" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-              <div
-                v-if="entry.id === user?.id && roleDrafts[entry.id] !== 'admin'"
-                class="tiny"
-                style="color: var(--issue)"
-              >
-                Keep your own account as admin.
+              <div class="small" style="flex: 1.2 1 0%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
+                {{ entry.email }}
               </div>
-            </div>
 
-            <div class="small" style="flex: 0.8 1 0%">{{ formatDate(entry.createdAt) }}</div>
+              <div class="col gap-1" style="flex: 0.8 1 0%">
+                <select
+                  v-model="roleDrafts[entry.id]"
+                  class="field"
+                  :disabled="savingRoleId === entry.id"
+                  @change="clearFeedback"
+                >
+                  <option v-for="option in ROLE_OPTIONS" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <div
+                  v-if="entry.id === user?.id && roleDrafts[entry.id] !== 'admin'"
+                  class="tiny"
+                  style="color: var(--issue)"
+                >
+                  Keep your own account as admin.
+                </div>
+              </div>
 
-            <div class="row" style="width: 120px; justify-content: flex-end">
-              <button
-                type="button"
-                class="btn"
-                :disabled="savingRoleId === entry.id || roleDrafts[entry.id] === entry.role"
-                @click="saveRole(entry.id)"
-              >
-                <span v-if="savingRoleId === entry.id" class="btn-spinner" />
-                <MaterialIcon v-else name="save" :size="16" />
-                Save
-              </button>
+              <div class="small" style="flex: 0.9 1 0%">{{ formatLastSeen(entry.lastSeenAt) }}</div>
+
+              <div class="small" style="flex: 0.8 1 0%">{{ formatDate(entry.createdAt) }}</div>
+
+              <div class="row" style="width: 120px; justify-content: flex-end">
+                <button
+                  type="button"
+                  class="btn"
+                  :disabled="savingRoleId === entry.id || roleDrafts[entry.id] === entry.role"
+                  @click="saveRole(entry.id)"
+                >
+                  <span v-if="savingRoleId === entry.id" class="btn-spinner" />
+                  <MaterialIcon v-else name="save" :size="16" />
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -355,3 +378,11 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.field-user-list {
+  max-height: 546px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+</style>

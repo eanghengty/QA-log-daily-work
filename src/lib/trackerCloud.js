@@ -380,6 +380,56 @@ export async function deleteCloudPendingSummary(siteId) {
   })
 }
 
+export async function getCloudSnagSummary(siteId) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'get-snag-summary',
+    siteId,
+  })
+}
+
+export async function saveCloudSnagSummary(snagSummary) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'save-snag-summary',
+    snagSummary,
+  })
+}
+
+export async function deleteCloudSnagSummary(siteId) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'delete-snag-summary',
+    siteId,
+  })
+}
+
+export async function listCloudSnagReports(siteId) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'list-snag-reports',
+    siteId,
+  })
+}
+
+export async function createCloudSnagReport(snagReport) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'create-snag-report',
+    snagReport,
+  })
+}
+
+export async function updateCloudSnagReport(id, updates) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'update-snag-report',
+    id,
+    updates,
+  })
+}
+
+export async function deleteCloudSnagReport(id) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'delete-snag-report',
+    id,
+  })
+}
+
 export async function uploadCloudAttachment(attachment) {
   return await callTrackerFunction('tracker-attachments', {
     action: 'upload',

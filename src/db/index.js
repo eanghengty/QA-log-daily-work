@@ -333,6 +333,57 @@ db.version(20).stores({
   pendingSummaries: 'siteId',
 })
 
+db.version(21).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id, name',
+  activityLog: '++id',
+  confirmSources: '++id, name',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+  pendingSummaries: 'siteId',
+  snagSummaries: 'siteId',
+})
+
+db.version(22).stores({
+  sites: 'id',
+  reports: '++id, siteId, date',
+  issues: '++id, siteId, status',
+  confirms: '++id, siteId',
+  attachments: '++id',
+  emailSettings: 'siteId',
+  scopes: '++id, name',
+  activityLog: '++id',
+  confirmSources: '++id, name',
+  checklists: '++id, siteId, order',
+  checklistLayouts: 'siteId',
+  cableMatrixLayouts: 'siteId',
+  antennaChecklistLayouts: 'siteId',
+  dcplChecklistLayouts: 'siteId',
+  cableChecklistLayouts: 'siteId',
+  cableMatrices: '++id, siteId, order',
+  antennaChecklists: '++id, siteId, order',
+  dcplChecklists: '++id, siteId, order',
+  cableChecklists: '++id, siteId, order',
+  documentReferences: '++id, siteId, createdAt',
+  pendingSummaries: 'siteId',
+  snagSummaries: 'siteId',
+  snagReports: '++id, siteId, date, category',
+})
+
 export async function initDb() {
   await cleanLegacyDemoData()
   await ensureLookupSeedData()
@@ -383,6 +434,8 @@ async function cleanLegacyDemoData() {
     db.cableChecklists,
     db.documentReferences,
     db.pendingSummaries,
+    db.snagSummaries,
+    db.snagReports,
     async () => {
       await Promise.all([
         db.sites.clear(),
@@ -403,6 +456,8 @@ async function cleanLegacyDemoData() {
         db.cableChecklists.clear(),
         db.documentReferences.clear(),
         db.pendingSummaries.clear(),
+        db.snagSummaries.clear(),
+        db.snagReports.clear(),
       ])
     }
   )

@@ -2,23 +2,25 @@ import { computed, ref, watch } from 'vue'
 import { db } from '../db/index.js'
 import { parsePendingSummaryInput } from '../lib/pendingSummaryParser.js'
 import {
-  getCloudPendingSummary,
+  getCloudSnagSummary,
   isCloudTrackerEnabled,
-  saveCloudPendingSummary,
+  saveCloudSnagSummary,
 } from '../lib/trackerCloud.js'
 import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 import { useLiveQuery } from './useLiveQuery.js'
 import { getCurrentActivityActor } from './useActivityActor.js'
 
-export const PENDING_SUMMARY_STATUS = {
+export const SNAG_SUMMARY_STATUS = {
   TODO: 'todo',
   PARTIAL: 'partial',
   DONE: 'done',
 }
 
-const cloudPendingSummaryBySite = new Map()
+export const SNAG_SUMMARY_CATEGORIES = ['GDC', 'PTA', 'Nokia']
 
-function createCloudPendingSummaryState() {
+const cloudSnagSummaryBySite = new Map()
+
+function createCloudSnagSummaryState() {
   return {
     data: ref(null),
     loading: ref(true),
@@ -28,27 +30,27 @@ function createCloudPendingSummaryState() {
   }
 }
 
-function getCloudPendingSummaryState(siteId) {
-  if (!cloudPendingSummaryBySite.has(siteId)) {
-    cloudPendingSummaryBySite.set(siteId, createCloudPendingSummaryState())
+function getCloudSnagSummaryState(siteId) {
+  if (!cloudSnagSummaryBySite.has(siteId)) {
+    cloudSnagSummaryBySite.set(siteId, createCloudSnagSummaryState())
   }
-  return cloudPendingSummaryBySite.get(siteId)
+  return cloudSnagSummaryBySite.get(siteId)
 }
 
-async function loadCloudPendingSummary(siteId, state, { force = false } = {}) {
+async function loadCloudSnagSummary(siteId, state, { force = false } = {}) {
   if (!force && state.ready) return state.data.value
   if (state.pending) return await state.pending
 
   state.loading.value = true
-  state.pending = getCloudPendingSummary(siteId)
-    .then(async ({ pendingSummary }) => {
-      let nextBoard = pendingSummary || null
+  state.pending = getCloudSnagSummary(siteId)
+    .then(async ({ snagSummary }) => {
+      let nextBoard = snagSummary || null
 
       if (!nextBoard) {
-        const localBoard = await db.pendingSummaries.get(siteId)
+        const localBoard = await db.snagSummaries.get(siteId)
         if (localBoard) {
-          const { pendingSummary: savedPendingSummary } = await saveCloudPendingSummary(localBoard)
-          nextBoard = savedPendingSummary || localBoard
+          const { snagSummary: savedSnagSummary } = await saveCloudSnagSummary(localBoard)
+          nextBoard = savedSnagSummary || localBoard
         }
       }
 
@@ -57,9 +59,9 @@ async function loadCloudPendingSummary(siteId, state, { force = false } = {}) {
       state.ready = true
 
       if (nextBoard) {
-        await db.pendingSummaries.put(nextBoard)
+        await db.snagSummaries.put(nextBoard)
       } else {
-        await db.pendingSummaries.delete(siteId)
+        await db.snagSummaries.delete(siteId)
       }
 
       return state.data.value
@@ -76,35 +78,35 @@ async function loadCloudPendingSummary(siteId, state, { force = false } = {}) {
   return await state.pending
 }
 
-export function usePendingSummary(siteId) {
-  const cloudState = isCloudTrackerEnabled() ? getCloudPendingSummaryState(siteId) : null
+export function useSnagSummary(siteId) {
+  const cloudState = isCloudTrackerEnabled() ? getCloudSnagSummaryState(siteId) : null
   const liveState = isCloudTrackerEnabled()
     ? {
         data: cloudState.data,
         loading: cloudState.loading,
         error: cloudState.error,
       }
-    : useLiveQuery(() => db.pendingSummaries.get(siteId))
+    : useLiveQuery(() => db.snagSummaries.get(siteId))
 
   if (cloudState) {
-    void loadCloudPendingSummary(siteId, cloudState)
+    void loadCloudSnagSummary(siteId, cloudState)
     const { trackerSyncRefreshToken } = useRealtime()
     watch(
       trackerSyncRefreshToken,
       () => {
-        void loadCloudPendingSummary(siteId, cloudState, { force: true })
+        void loadCloudSnagSummary(siteId, cloudState, { force: true })
       },
     )
   }
 
   const board = liveState.data
   const sections = computed(() => normalizeSections(board.value?.sections || []))
-  const summary = computed(() => summarizePendingSummary(sections.value))
+  const summary = computed(() => summarizeSnagSummary(sections.value))
 
   async function loadCurrentBoard() {
     if (isCloudTrackerEnabled()) {
-      const state = getCloudPendingSummaryState(siteId)
-      const currentBoard = await loadCloudPendingSummary(siteId, state)
+      const state = getCloudSnagSummaryState(siteId)
+      const currentBoard = await loadCloudSnagSummary(siteId, state)
       if (currentBoard) {
         return {
           ...currentBoard,
@@ -114,7 +116,7 @@ export function usePendingSummary(siteId) {
       return createEmptyBoard(siteId)
     }
 
-    const currentBoard = await db.pendingSummaries.get(siteId)
+    const currentBoard = await db.snagSummaries.get(siteId)
     return currentBoard
       ? {
           ...currentBoard,
@@ -123,12 +125,12 @@ export function usePendingSummary(siteId) {
       : createEmptyBoard(siteId)
   }
 
-  async function persistBoard(nextBoard, reason = 'pending-summary-updated') {
+  async function persistBoard(nextBoard, reason = 'snag-summary-updated') {
     if (isCloudTrackerEnabled()) {
-      const { pendingSummary } = await saveCloudPendingSummary(nextBoard)
-      const savedBoard = pendingSummary || nextBoard
-      await db.pendingSummaries.put(savedBoard)
-      const state = getCloudPendingSummaryState(siteId)
+      const { snagSummary } = await saveCloudSnagSummary(nextBoard)
+      const savedBoard = snagSummary || nextBoard
+      await db.snagSummaries.put(savedBoard)
+      const state = getCloudSnagSummaryState(siteId)
       state.data.value = savedBoard
       state.error.value = null
       state.ready = true
@@ -137,7 +139,7 @@ export function usePendingSummary(siteId) {
       return savedBoard
     }
 
-    await db.pendingSummaries.put(nextBoard)
+    await db.snagSummaries.put(nextBoard)
     return nextBoard
   }
 
@@ -152,30 +154,33 @@ export function usePendingSummary(siteId) {
     )
   }
 
-  async function generateFromText(sourceText) {
+  async function generateFromText(sourceText, options = {}) {
     const existingBoard = await loadCurrentBoard()
     const existingSections = normalizeSections(existingBoard?.sections || [])
-
-    if (existingSections.length) {
-      throw new Error('Pending summary already exists. Delete all main lists before generating again.')
-    }
-
     const parsed = parsePendingSummaryInput(sourceText)
-    const nextSections = preserveExistingState(parsed.sections, existingSections)
+    const category = normalizeCategory(options.category)
+    const { sections: nextSections, skippedDuplicates } = mergeGeneratedSections(
+      existingSections,
+      assignCategoryToSections(parsed.sections, category),
+    )
     const now = new Date().toISOString()
 
     await persistBoard(
       {
         siteId,
         sections: nextSections,
-        sourceText: String(sourceText || ''),
+        sourceText: [existingBoard?.sourceText, String(sourceText || '')].filter(Boolean).join('\n\n'),
         createdAt: existingBoard?.createdAt || now,
         updatedAt: now,
       },
-      'pending-summary-generated',
+      'snag-summary-generated',
     )
 
-    return summarizePendingSummary(nextSections)
+    return {
+      ...summarizeSnagSummary(nextSections),
+      skippedDuplicates,
+      category,
+    }
   }
 
   async function addSection(sectionData) {
@@ -194,7 +199,7 @@ export function usePendingSummary(siteId) {
     const nextSections = [
       ...normalizeSections(existingBoard.sections || []),
       {
-        id: createLocalId('pending-section'),
+        id: createLocalId('snag-section'),
         code: nextCode,
         title: nextTitle,
         order: (existingBoard.sections || []).length + 1,
@@ -203,8 +208,8 @@ export function usePendingSummary(siteId) {
       },
     ]
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-section-added')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-section-added')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function addGroup(sectionId, groupData) {
@@ -230,7 +235,7 @@ export function usePendingSummary(siteId) {
         groups: [
           ...(section.groups || []),
           {
-            id: createLocalId('pending-group'),
+            id: createLocalId('snag-group'),
             code: nextCode,
             title: nextTitle,
             order: (section.groups || []).length + 1,
@@ -245,8 +250,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Main list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-group-added')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-group-added')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function addItem(sectionId, groupId, itemData) {
@@ -276,9 +281,10 @@ export function usePendingSummary(siteId) {
             items: [
               ...(group.items || []),
               {
-                id: createLocalId('pending-item'),
+                id: createLocalId('snag-item'),
                 title: nextTitle,
-                status: PENDING_SUMMARY_STATUS.TODO,
+                category: normalizeCategory(itemData?.category),
+                status: SNAG_SUMMARY_STATUS.TODO,
                 order: (group.items || []).length + 1,
                 actionHistory: [],
                 createdAt: new Date().toISOString(),
@@ -293,8 +299,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Sub list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-item-added')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-item-added')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function deleteSection(sectionId) {
@@ -311,8 +317,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Main list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-section-deleted')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-section-deleted')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function renameSection(sectionId, sectionData) {
@@ -344,8 +350,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Main list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-section-renamed')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-section-renamed')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function deleteGroup(sectionId, groupId) {
@@ -376,8 +382,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Sub list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-group-deleted')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-group-deleted')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function renameGroup(sectionId, groupId, groupData) {
@@ -415,8 +421,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Sub list not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-group-renamed')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-group-renamed')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function deleteItem(sectionId, groupId, itemId) {
@@ -454,8 +460,8 @@ export function usePendingSummary(siteId) {
       throw new Error('Pending item not found.')
     }
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-item-deleted')
-    return summarizePendingSummary(nextSections)
+    await saveBoard(existingBoard, nextSections, 'snag-summary-item-deleted')
+    return summarizeSnagSummary(nextSections)
   }
 
   async function setItemStatus(sectionId, groupId, itemId, status, options = {}) {
@@ -464,7 +470,7 @@ export function usePendingSummary(siteId) {
 
     const nextStatus = normalizeStatus(status)
     const nextPartialComment =
-      nextStatus === PENDING_SUMMARY_STATUS.PARTIAL ? String(options.partialComment || '').trim() : ''
+      nextStatus === SNAG_SUMMARY_STATUS.PARTIAL ? String(options.partialComment || '').trim() : ''
     let didChange = false
 
     const nextSections = normalizeSections(existingBoard.sections || []).map((section) => {
@@ -502,7 +508,7 @@ export function usePendingSummary(siteId) {
 
     if (!didChange) return
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-status-updated')
+    await saveBoard(existingBoard, nextSections, 'snag-summary-status-updated')
   }
 
   async function setItemChecking(sectionId, groupId, itemId, isChecking) {
@@ -539,7 +545,44 @@ export function usePendingSummary(siteId) {
 
     if (!didChange) return
 
-    await saveBoard(existingBoard, nextSections, 'pending-summary-checking-updated')
+    await saveBoard(existingBoard, nextSections, 'snag-summary-checking-updated')
+  }
+
+  async function setItemCategory(sectionId, groupId, itemId, category) {
+    const existingBoard = await loadCurrentBoard()
+    if (!existingBoard) return
+
+    const nextCategory = normalizeCategory(category)
+    let didChange = false
+
+    const nextSections = normalizeSections(existingBoard.sections || []).map((section) => {
+      if (section.id !== sectionId) return section
+
+      return {
+        ...section,
+        groups: (section.groups || []).map((group) => {
+          if (group.id !== groupId) return group
+
+          return {
+            ...group,
+            items: (group.items || []).map((item) => {
+              if (item.id !== itemId) return item
+              if (normalizeCategory(item.category) === nextCategory) return item
+
+              didChange = true
+              return {
+                ...item,
+                category: nextCategory,
+              }
+            }),
+          }
+        }),
+      }
+    })
+
+    if (!didChange) return
+
+    await saveBoard(existingBoard, nextSections, 'snag-summary-category-updated')
   }
 
   return {
@@ -557,13 +600,14 @@ export function usePendingSummary(siteId) {
     renameGroup,
     setItemStatus,
     setItemChecking,
+    setItemCategory,
   }
 }
 
-export function summarizePendingSummary(sections) {
+export function summarizeSnagSummary(sections) {
   const groups = sections.flatMap((section) => section.groups || [])
   const items = groups.flatMap((group) => group.items || [])
-  const done = items.filter((item) => normalizeStatus(item.status) === PENDING_SUMMARY_STATUS.DONE).length
+  const done = items.filter((item) => normalizeStatus(item.status) === SNAG_SUMMARY_STATUS.DONE).length
   const todo = items.length - done
 
   return {
@@ -579,20 +623,21 @@ export function summarizePendingSummary(sections) {
 function normalizeSections(sections) {
   return (sections || []).map((section, sectionIndex) => ({
     ...section,
-    id: section.id || createLocalId('pending-section'),
+    id: section.id || createLocalId('snag-section'),
     code: String(section.code || '').trim(),
     title: String(section.title || '').trim(),
     order: Number(section.order) || sectionIndex + 1,
     groups: (section.groups || []).map((group, groupIndex) => ({
       ...group,
-      id: group.id || createLocalId('pending-group'),
+      id: group.id || createLocalId('snag-group'),
       code: String(group.code || '').trim(),
       title: String(group.title || '').trim(),
       order: Number(group.order) || groupIndex + 1,
       items: (group.items || []).map((item, itemIndex) => ({
         ...item,
-        id: item.id || createLocalId('pending-item'),
+        id: item.id || createLocalId('snag-item'),
         title: String(item.title || '').trim(),
+        category: normalizeCategory(item.category),
         status: normalizeStatus(item.status),
         isChecking: Boolean(item.isChecking),
         partialComment: String(item.partialComment || '').trim(),
@@ -605,7 +650,7 @@ function normalizeSections(sections) {
 
 function normalizeActionHistory(entries) {
   return (entries || []).map((entry) => ({
-    id: entry.id || createLocalId('pending-history'),
+    id: entry.id || createLocalId('snag-history'),
     fromStatus: normalizeStatus(entry.fromStatus),
     toStatus: normalizeStatus(entry.toStatus),
     comment: String(entry.comment || '').trim(),
@@ -638,6 +683,7 @@ function preserveExistingState(nextSections, existingSections) {
               ...item,
               id: existingItem?.id || item.id,
               status: normalizeStatus(existingItem?.status || item.status),
+              category: normalizeCategory(existingItem?.category || item.category),
               isChecking: Boolean(existingItem?.isChecking),
               partialComment: String(existingItem?.partialComment || item.partialComment || '').trim(),
               actionHistory: normalizeActionHistory(existingItem?.actionHistory || item.actionHistory || []),
@@ -648,6 +694,68 @@ function preserveExistingState(nextSections, existingSections) {
       }),
     }
   })
+}
+
+function assignCategoryToSections(sections, category) {
+  return normalizeSections(sections).map((section) => ({
+    ...section,
+    groups: (section.groups || []).map((group) => ({
+      ...group,
+      items: (group.items || []).map((item) => ({
+        ...item,
+        category,
+      })),
+    })),
+  }))
+}
+
+function mergeGeneratedSections(existingSections, generatedSections) {
+  const nextSections = normalizeSections(existingSections)
+  let skippedDuplicates = 0
+
+  normalizeSections(generatedSections).forEach((section) => {
+    const existingSection = findByTitle(nextSections, section.title)
+
+    if (!existingSection) {
+      nextSections.push({
+        ...section,
+        order: nextSections.length + 1,
+        createdAt: section.createdAt || new Date().toISOString(),
+      })
+      return
+    }
+
+    ;(section.groups || []).forEach((group) => {
+      const existingGroup = findByTitle(existingSection.groups, group.title)
+
+      if (!existingGroup) {
+        existingSection.groups.push({
+          ...group,
+          order: existingSection.groups.length + 1,
+          createdAt: group.createdAt || new Date().toISOString(),
+        })
+        return
+      }
+
+      ;(group.items || []).forEach((item) => {
+        if (findByTitle(existingGroup.items, item.title)) {
+          skippedDuplicates += 1
+          return
+        }
+
+        existingGroup.items.push({
+          ...item,
+          order: existingGroup.items.length + 1,
+          createdAt: item.createdAt || new Date().toISOString(),
+        })
+      })
+    })
+  })
+
+  return {
+    sections: normalizeSections(nextSections),
+    skippedDuplicates,
+  }
 }
 
 function findByTitle(collection, title) {
@@ -668,9 +776,14 @@ function createEmptyBoard(siteId) {
 
 function normalizeStatus(status) {
   const normalized = String(status || '').trim().toLowerCase()
-  if (normalized === PENDING_SUMMARY_STATUS.DONE) return PENDING_SUMMARY_STATUS.DONE
-  if (normalized === PENDING_SUMMARY_STATUS.PARTIAL) return PENDING_SUMMARY_STATUS.PARTIAL
-  return PENDING_SUMMARY_STATUS.TODO
+  if (normalized === SNAG_SUMMARY_STATUS.DONE) return SNAG_SUMMARY_STATUS.DONE
+  if (normalized === SNAG_SUMMARY_STATUS.PARTIAL) return SNAG_SUMMARY_STATUS.PARTIAL
+  return SNAG_SUMMARY_STATUS.TODO
+}
+
+function normalizeCategory(category) {
+  const normalized = String(category || '').trim().toLowerCase()
+  return SNAG_SUMMARY_CATEGORIES.find((option) => option.toLowerCase() === normalized) || SNAG_SUMMARY_CATEGORIES[0]
 }
 
 function normalizeKey(value) {
@@ -679,7 +792,7 @@ function normalizeKey(value) {
 
 function createActionHistoryEntry(fromStatus, toStatus, comment = '') {
   return {
-    id: createLocalId('pending-history'),
+    id: createLocalId('snag-history'),
     fromStatus: normalizeStatus(fromStatus),
     toStatus: normalizeStatus(toStatus),
     comment: String(comment || '').trim(),
@@ -695,3 +808,4 @@ function createLocalId(prefix) {
 
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
+

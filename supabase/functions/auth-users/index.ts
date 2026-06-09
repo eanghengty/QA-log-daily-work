@@ -18,6 +18,7 @@ function formatManagedUser(row: Record<string, unknown>) {
   return {
     ...publicUserRow(row),
     isActive: Boolean(row.is_active),
+    lastSeenAt: row.active_session_seen_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -45,7 +46,7 @@ Deno.serve(async (req) => {
     if (action === 'list') {
       const { data, error } = await admin
         .from('app_users')
-        .select('id, email, full_name, role, is_active, created_at, updated_at')
+        .select('id, email, full_name, role, is_active, active_session_seen_at, created_at, updated_at')
         .order('created_at', { ascending: true })
 
       if (error) {
@@ -73,7 +74,7 @@ Deno.serve(async (req) => {
           password_salt: salt,
           password_hash: hash,
         })
-        .select('id, email, full_name, role, is_active, created_at, updated_at')
+        .select('id, email, full_name, role, is_active, active_session_seen_at, created_at, updated_at')
         .single()
 
       if (error) {
@@ -130,7 +131,7 @@ Deno.serve(async (req) => {
         .from('app_users')
         .update({ role })
         .eq('id', userId)
-        .select('id, email, full_name, role, is_active, created_at, updated_at')
+        .select('id, email, full_name, role, is_active, active_session_seen_at, created_at, updated_at')
         .single()
 
       if (error) {

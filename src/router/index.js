@@ -90,6 +90,11 @@ const routes = [
     component: () => import('../views/PendingSummaryView.vue'),
   },
   {
+    path: '/site/:id/snag-summary',
+    name: 'site-snag-summary',
+    component: () => import('../views/SnagSummaryView.vue'),
+  },
+  {
     path: '/site/:id/report/new',
     name: 'new-report',
     component: () => import('../views/NewReportView.vue'),

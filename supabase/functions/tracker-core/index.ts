@@ -12,12 +12,16 @@ import {
   mapIssueRow,
   mapPendingSummaryRow,
   mapReportRow,
+  mapSnagReportRow,
+  mapSnagSummaryRow,
   normalizeConfirmInput,
   normalizeDocumentReferenceInput,
   normalizeEmailSettingsInput,
   normalizeIssueInput,
   normalizePendingSummaryInput,
   normalizeReportInput,
+  normalizeSnagReportInput,
+  normalizeSnagSummaryInput,
   requireRecordId,
   requireSiteId,
 } from '../_shared/tracker.ts'
@@ -657,6 +661,103 @@ Deno.serve(async (req) => {
     if (action === 'delete-pending-summary') {
       const siteId = requireSiteId(body.siteId)
       const { error } = await admin.from('pending_summaries').delete().eq('site_id', siteId)
+      if (error) throw error
+      return jsonResponse(200, { ok: true })
+    }
+
+    if (action === 'get-snag-summary') {
+      const siteId = requireSiteId(body.siteId)
+      const { data, error } = await admin
+        .from('snag_summaries')
+        .select('site_id, source_text, sections, created_at, updated_at')
+        .eq('site_id', siteId)
+        .maybeSingle()
+
+      if (error) throw error
+      return jsonResponse(200, { snagSummary: data ? mapSnagSummaryRow(data) : null })
+    }
+
+    if (action === 'save-snag-summary') {
+      const snagSummary = normalizeSnagSummaryInput(body.snagSummary || {})
+      const { data, error } = await admin
+        .from('snag_summaries')
+        .upsert({
+          site_id: snagSummary.siteId,
+          source_text: snagSummary.sourceText,
+          sections: snagSummary.sections,
+          updated_by: user.id,
+        })
+        .select('site_id, source_text, sections, created_at, updated_at')
+        .single()
+
+      if (error) throw error
+      return jsonResponse(200, { snagSummary: mapSnagSummaryRow(data) })
+    }
+
+    if (action === 'delete-snag-summary') {
+      const siteId = requireSiteId(body.siteId)
+      const { error } = await admin.from('snag_summaries').delete().eq('site_id', siteId)
+      if (error) throw error
+      return jsonResponse(200, { ok: true })
+    }
+
+    if (action === 'list-snag-reports') {
+      const siteId = requireSiteId(body.siteId)
+      const { data, error } = await admin
+        .from('snag_reports')
+        .select('id, site_id, category, report_date, report_time, notes, notes_rich, created_at, updated_at')
+        .eq('site_id', siteId)
+        .order('report_date', { ascending: false })
+        .order('report_time', { ascending: false })
+
+      if (error) throw error
+      return jsonResponse(200, { snagReports: (data || []).map(mapSnagReportRow) })
+    }
+
+    if (action === 'create-snag-report') {
+      const snagReport = normalizeSnagReportInput(body.snagReport || {})
+      const { data, error } = await admin
+        .from('snag_reports')
+        .insert({
+          site_id: snagReport.siteId,
+          category: snagReport.category,
+          report_date: snagReport.date,
+          report_time: snagReport.time,
+          notes: snagReport.notes,
+          notes_rich: snagReport.notesRich,
+          created_by: user.id,
+          updated_by: user.id,
+        })
+        .select('id, site_id, category, report_date, report_time, notes, notes_rich, created_at, updated_at')
+        .single()
+
+      if (error) throw error
+      return jsonResponse(200, { snagReport: mapSnagReportRow(data) })
+    }
+
+    if (action === 'update-snag-report') {
+      const id = requireRecordId(body.id)
+      const updates = body.updates || {}
+      const category = `${updates.category || 'GDC'}`.trim()
+      const { data, error } = await admin
+        .from('snag_reports')
+        .update({
+          category: ['GDC', 'PTA', 'Nokia'].includes(category) ? category : 'GDC',
+          ...(typeof updates.notes === 'string' ? { notes: updates.notes } : {}),
+          ...(typeof updates.notesRich === 'string' ? { notes_rich: updates.notesRich } : {}),
+          updated_by: user.id,
+        })
+        .eq('id', id)
+        .select('id, site_id, category, report_date, report_time, notes, notes_rich, created_at, updated_at')
+        .single()
+
+      if (error) throw error
+      return jsonResponse(200, { snagReport: mapSnagReportRow(data) })
+    }
+
+    if (action === 'delete-snag-report') {
+      const id = requireRecordId(body.id)
+      const { error } = await admin.from('snag_reports').delete().eq('id', id)
       if (error) throw error
       return jsonResponse(200, { ok: true })
     }

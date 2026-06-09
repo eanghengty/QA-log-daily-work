@@ -290,3 +290,37 @@ export function mapPendingSummaryRow(row: Record<string, unknown>) {
     updatedAt: row.updated_at || '',
   }
 }
+
+export function normalizeSnagSummaryInput(value: Record<string, unknown>) {
+  return normalizePendingSummaryInput(value)
+}
+
+export function mapSnagSummaryRow(row: Record<string, unknown>) {
+  return mapPendingSummaryRow(row)
+}
+
+export function normalizeSnagReportInput(value: Record<string, unknown>) {
+  const category = `${value.category || 'GDC'}`.trim()
+  return {
+    siteId: requireSiteId(value.siteId),
+    category: ['GDC', 'PTA', 'Nokia'].includes(category) ? category : 'GDC',
+    date: `${value.date || ''}`.trim(),
+    time: `${value.time || ''}`.trim(),
+    notes: `${value.notes || ''}`,
+    notesRich: `${value.notesRich || ''}`,
+  }
+}
+
+export function mapSnagReportRow(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    siteId: row.site_id,
+    category: row.category || 'GDC',
+    date: row.report_date || '',
+    time: row.report_time || '',
+    notes: row.notes || '',
+    notesRich: row.notes_rich || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+  }
+}
