@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { db } from '../db/index.js'
 import { isSupabaseConfigured } from '../lib/supabase.js'
 import { callCustomAuthFunction } from '../lib/customAuthApi.js'
 import {
@@ -118,6 +119,25 @@ function buildProfile(userPayload) {
     email: userPayload.email || '',
     full_name: `${userPayload.fullName || ''}`.trim(),
     role: userPayload.role || 'member',
+  }
+}
+
+async function writeAuthActivity(action, userPayload, detail = '') {
+  const actor = buildUser(userPayload)
+  const displayName = `${userPayload?.fullName || ''}`.trim()
+  const email = `${userPayload?.email || ''}`.trim()
+
+  try {
+    await db.activityLog.add({
+      action,
+      detail,
+      userId: actor?.id || '',
+      userName: displayName || email || 'Unknown user',
+      userEmail: email,
+      at: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.warn('Unable to record auth activity.', error)
   }
 }
 
@@ -365,6 +385,7 @@ export function useAuth() {
       startSessionPolling()
       await refreshBootstrapStatus()
       await syncTrackerSetup(buildUser(data.user))
+      await writeAuthActivity('User signed in', data.user, data.user?.email || '')
       broadcastAuthEvent({
         type: 'login',
         userId: data.user?.id || '',
@@ -403,6 +424,7 @@ export function useAuth() {
       startSessionPolling()
       await refreshBootstrapStatus()
       await syncTrackerSetup(buildUser(data.user))
+      await writeAuthActivity('First account created', data.user, data.user?.email || '')
       broadcastAuthEvent({
         type: 'login',
         userId: data.user?.id || '',
@@ -444,6 +466,7 @@ export function useAuth() {
         expiresAt: session.value.expiresAt,
         user: data.user,
       })
+      await writeAuthActivity('Account details updated', data.user, data.user?.email || '')
       authNotice.value = 'Account details saved.'
     } catch (error) {
       authError.value = error.message || 'Unable to save the account details.'
@@ -455,6 +478,7 @@ export function useAuth() {
 
   async function signOut() {
     const activeToken = session.value?.token || safeSessionStorageGet(CUSTOM_SESSION_STORAGE_KEY)
+    const signedOutUser = profile.value || session.value?.user
 
     isBusy.value = true
     authError.value = ''
@@ -468,6 +492,12 @@ export function useAuth() {
       console.warn('Custom backend sign-out cleanup failed.', error)
     } finally {
       const signedOutUserId = session.value?.user?.id || ''
+      await writeAuthActivity('User signed out', {
+        id: signedOutUser?.id || '',
+        email: signedOutUser?.email || '',
+        fullName: signedOutUser?.full_name || signedOutUser?.user_metadata?.full_name || '',
+        role: signedOutUser?.role || '',
+      }, signedOutUser?.email || '')
       clearSessionState({ clearStoredToken: true })
       if (signedOutUserId) {
         broadcastAuthEvent({

@@ -36,6 +36,13 @@ const iconMap = {
   'Scope added': 'label',
   'Scope deleted': 'label_off',
   'Email settings saved': 'mail',
+  'User signed in': 'login',
+  'User signed out': 'logout',
+  'First account created': 'person_add',
+  'Account details updated': 'manage_accounts',
+  'Field user created': 'person_add',
+  'Field user role updated': 'admin_panel_settings',
+  'Attachment sync run': 'cloud_sync',
   'Full backup exported': 'backup',
   'Full backup restored': 'restore',
 }

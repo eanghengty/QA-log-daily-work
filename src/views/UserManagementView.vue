@@ -5,6 +5,7 @@ import MaterialIcon from '../components/MaterialIcon.vue'
 import { useAuth } from '../composables/useAuth.js'
 import { useAdminUsers } from '../composables/useAdminUsers.js'
 import { syncLocalAttachmentsToCloud } from '../composables/useAttachments.js'
+import { useActivityLog } from '../composables/useActivityLog.js'
 
 const ROLE_OPTIONS = [
   { value: 'member', label: 'Member' },
@@ -15,6 +16,7 @@ const ROLE_OPTIONS = [
 const { user, isAdmin } = useAuth()
 const { users, loading, submitting, savingRoleId, error, notice, loadUsers, createUser, updateUserRole, clearFeedback } =
   useAdminUsers()
+const { logAction } = useActivityLog()
 
 const form = ref({
   fullName: '',
@@ -54,7 +56,10 @@ async function refreshUsers() {
 
 async function submitCreateUser() {
   try {
-    await createUser(form.value)
+    const createdUser = await createUser(form.value)
+    if (createdUser) {
+      await logAction('Field user created', `${createdUser.email || form.value.email} - ${createdUser.role || form.value.role}`)
+    }
     resetForm()
     syncRoleDrafts()
   } catch {
@@ -65,7 +70,10 @@ async function submitCreateUser() {
 async function saveRole(userId) {
   try {
     const nextRole = roleDrafts.value[userId] || 'member'
-    await updateUserRole(userId, nextRole)
+    const updatedUser = await updateUserRole(userId, nextRole)
+    if (updatedUser) {
+      await logAction('Field user role updated', `${updatedUser.email || userId} - ${updatedUser.role || nextRole}`)
+    }
     syncRoleDrafts()
   } catch {
     // Feedback is already stored in the composable state.
@@ -84,6 +92,10 @@ async function syncBrowserAttachments() {
       `Attachment sync complete: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed.`
     attachmentSyncTone.value = result.failed ? 'issue' : 'confirm'
     attachmentSyncErrors.value = result.errors || []
+    await logAction(
+      'Attachment sync run',
+      `${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed`,
+    )
   } catch (err) {
     attachmentSyncMessage.value = `Attachment sync failed: ${err.message || 'Unknown error'}`
     attachmentSyncTone.value = 'issue'

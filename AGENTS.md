@@ -4,8 +4,9 @@ A telecom site progress tracker. A field coordinator tracks physical telecom
 sites, logs daily progress updates, blockers, approvals / sign-offs, and field proof, then
 generates an email draft from each update. Supabase now provides custom backend auth
 infrastructure, Edge Functions, CLI migrations, realtime presence, and cloud-backed site headers,
-lookup tables, progress updates, blockers, approvals, pending-summary records, document references,
-email settings, site checklist boards, cable matrix boards, and checklist-style asset boards.
+lookup tables, progress updates, blockers, approvals, pending-summary records, snag-summary records,
+snag-history records, document references, email settings, site checklist boards, cable matrix
+boards, and checklist-style asset boards.
 New and restored attachments are cloud-backed through the custom backend, with IndexedDB kept as a
 local preview cache.
 
@@ -46,12 +47,13 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - Dexie remains the source of truth for activity log data and the local cache for attachments, and it remains the
   reactive local mirror for cloud-backed records in the current app.
 - In custom-backend mode, `sites`, `scopes`, `confirmSources`, progress updates, blockers,
-  approvals, pending summaries, document references, email settings, site checklist boards, cable
-  matrix boards, checklist-style asset boards, and new/restored attachments are mirrored locally for the existing UI, but
+  approvals, pending summaries, snag summaries, snag history, document references, email settings,
+  site checklist boards, cable matrix boards, checklist-style asset boards, and new/restored attachments are mirrored locally for the existing UI, but
   their durable source of truth is the Supabase-backed Edge Function layer.
 - Tables: `sites`, `reports`, `issues`, `confirms`, `attachments`, `emailSettings`,
   `checklists`, `checklistLayouts`, `cableMatrices`, `antennaChecklists`, `dcplChecklists`,
-  `cableChecklists`, `documentReferences`, `pendingSummaries`, plus supporting lookup/activity tables already in the app.
+  `cableChecklists`, `documentReferences`, `pendingSummaries`, `snagSummaries`, `snagReports`,
+  plus supporting lookup/activity tables already in the app.
 - The app starts empty. Do not add demo, dummy, placeholder, or hardcoded site records.
 - Internal table/field names still use `reports`, `issues`, and `confirms`, but the user-facing
   domain language is telecom progress updates, blockers, and approvals.
@@ -76,6 +78,12 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - `pendingSummaries` stores one generated pending-summary board per site, including pasted source
   text, ordered main lists, ordered sub lists, pending items, per-item `todo` / `partial` /
   `done` status, optional partial-done comments, optional under-checking flags, and item action dates.
+- `snagSummaries` stores one generated snag-summary board per site, including pasted source text,
+  ordered main lists, ordered sub lists, snag items, per-item `todo` / `partial` / `done` status,
+  category (`GDC`, `PTA`, or `Nokia`), optional partial-done comments, optional under-checking
+  flags, and item action dates.
+- `snagReports` stores separate snag-history records exported from the snag summary board. These
+  records are not progress updates and must not appear in progress history or email draft flows.
 
 ### Supabase Layer (`src/lib/`, `src/composables/`, `supabase/`)
 
@@ -83,9 +91,9 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   `VITE_SUPABASE_ANON_KEY`. The browser client is for Edge Functions and Realtime; it does not
   use `supabase.auth` browser sessions anymore.
 - `src/lib/trackerCloud.js` calls authenticated Edge Functions for cloud-backed site headers,
-  scopes, confirmation sources, progress updates, blockers, approvals, pending summaries, document
-  references, email settings, checklist board payloads, attachment upload/download, backup restore,
-  and local-to-cloud mirror sync.
+  scopes, confirmation sources, progress updates, blockers, approvals, pending summaries, snag
+  summaries, snag history, document references, email settings, checklist board payloads,
+  attachment upload/download, backup restore, and local-to-cloud mirror sync.
 - `src/lib/cloudBoardMirror.js` keeps the checklist, cable matrix, antenna checklist, DCPL
   checklist, and cable checklist Dexie tables synchronized with Supabase `tracker_site_boards`
   payloads so the views can keep using live local mirrors.
@@ -102,8 +110,9 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   `tracker-attachments` stores and retrieves cloud-backed field proof files by attachment ID.
 - Current cloud auth schema includes `app_users` and `app_sessions` for custom backend login,
   plus `sites`, `site_scopes`, `confirm_sources`, `reports`, `issues`, `confirms`,
-  `pending_summaries`, `document_references`, `email_settings`, `tracker_site_boards`, and
-  `tracker_attachments` for tracker records moved off Dexie as the durable source of truth.
+  `pending_summaries`, `snag_summaries`, `snag_reports`, `document_references`,
+  `email_settings`, `tracker_site_boards`, and `tracker_attachments` for tracker records moved off
+  Dexie as the durable source of truth.
   Earlier foundation tables such as `profiles`, `organizations`, and `organization_members` may
   still exist from the prior Supabase-auth experiment, but the active login flow now uses the
   custom backend auth tables and functions instead.
@@ -133,8 +142,15 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   row-level change logging.
 - `usePendingSummary.js` owns Supabase-backed per-site pending summary generation from pasted text,
   nested main-list / sub-list / item persistence, manual add and delete actions for all three
-  layers, summary counts, partial-done comment capture, under-checking flags,
+  layers, rename actions for main and sub lists, summary counts, partial-done comment capture, under-checking flags,
   export-to-progress-update formatting, and per-item status action history.
+- `useSnagSummary.js` owns Supabase-backed per-site snag summary generation from pasted text,
+  append/merge behavior, duplicate-item skipping, nested main-list / sub-list / item persistence,
+  manual add and delete actions for all three layers, rename actions for main and sub lists,
+  category persistence (`GDC`, `PTA`, `Nokia`), summary counts, partial-done comment capture,
+  under-checking flags, and per-item status action history.
+- `useSnagReports.js` owns Supabase-backed snag-history records exported from snag summary,
+  including category toggles, edit-view loading, rich-note updates, and delete actions.
 - `useAuth.js` is a shared singleton-style auth store; components use it for the current user,
   session state, account updates, first-account bootstrap state, and auth feedback.
 - `useRealtime.js` is a shared singleton-style realtime store; components use it for connection
@@ -180,15 +196,16 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 
 - `exportSite()` must include all per-site records for progress updates, blockers, confirmations,
   site checklist, checklist custom columns, cable matrix, antenna checklist, DCPL checklist,
-  cable checklist, pending summary, document references, email settings, and linked attachments.
+  cable checklist, pending summary, snag summary, snag history, document references, email
+  settings, and linked attachments.
 - Site export payloads include a `summary` block so the site dashboard import flow can show the
   user exactly what the incoming file contains before replacing current site data.
 - `importSite()` must restore all of those tables for the selected site, not just the original
   checklist and cable matrix data.
 - In custom-backend mode, full backup restore replaces Supabase-backed lookup/site tables and then
-  restores cloud-backed progress updates, blockers, approvals, pending summaries, document
-  references, email settings, and checklist board payloads for each restored site. IndexedDB-only
-  tables still restore locally.
+  restores cloud-backed progress updates, blockers, approvals, pending summaries, snag summaries,
+  snag history, document references, email settings, and checklist board payloads for each restored
+  site. IndexedDB-only tables still restore locally.
 
 ### Email (`src/lib/email.js`)
 
@@ -210,6 +227,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   - `DcplChecklistView` (site DCPL asset board)
   - `CableChecklistView` (site cable checklist board)
   - `PendingSummaryView` (generated pending-summary board)
+  - `SnagSummaryView` (generated snag-summary board)
+  - `SnagReportView` (edit saved snag-history record)
   - `NewReportView` (progress update form)
   - `EmailDraftView`
   - `IssueLogView` (blocker form)
@@ -224,8 +243,12 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   - `AuthView` (custom backend sign-in and first-account bootstrap)
   - `AccountModal`
 - `src/router/index.js` keeps `/site/new` before `/site/:id`. Do not reorder those routes.
-- The checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, and pending
-  summary workflows live on their own routes and are linked from the site dashboard quick-action area.
+- The checklist, cable matrix, antenna checklist, DCPL checklist, cable checklist, pending
+  summary, and snag summary workflows live on their own routes and are linked from the site
+  dashboard quick-action area.
+- The site dashboard has separate progress history and snag history panels. Progress updates must
+  not include snag-history records; snag-history records must remain editable through `SnagReportView`
+  without offering email draft generation.
 - The site dashboard top bar includes `Document Reference`, which opens a modal for site-specific
   titled document links.
 - `src/App.vue` now auth-gates the shell when Supabase env values are present. If the env values
@@ -319,6 +342,23 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   place done items in the bottom `Pending clear today:` block.
 - **Pending summary history**: todo / partial / done changes must record action dates in the item
   history so the user can review when it changed, including saved partial-done comments.
+- **Summary rename**: pending summary and snag summary main lists and sub lists must support rename
+  actions for both code and title, with duplicate-name protection.
+- **Snag summary parsing**: snag summary uses the same numbered/bulleted parser as pending summary,
+  but each generated batch must first ask for a snag category (`GDC`, `PTA`, or `Nokia`) using a
+  styled in-app modal, not raw browser prompt.
+- **Snag summary append**: generating snag summary text must append to the existing board. Existing
+  main/sub lists are reused by title, new items are appended, and duplicate item names in the same
+  sub list are skipped with a duplicate warning.
+- **Snag summary categories**: every snag item stores one category (`GDC`, `PTA`, or `Nokia`).
+  Manual item creation defaults to `GDC` unless the UI supplies another category. Category selectors
+  must persist through Supabase and local IndexedDB mirrors.
+- **Snag summary dashboard counts**: the dashboard Snag summary card should show category progress
+  as done/total, for example `GDC 3/5 - PTA 1/4 - Nokia 0/2`.
+- **Snag history**: exporting from Snag Summary saves a separate snag-history record filtered to
+  the selected category. It must not create a progress update, must not appear in progress history,
+  and must not offer email draft generation. Snag history records support category toggles, delete,
+  and rich-note editing.
 - **Approvals**: saving an approval requires at least one attachment.
 - **IDs**: `sites` use slug strings; cloud-backed `reports`, `issues`, and `confirms` use
   Supabase UUID strings in custom-backend mode; local-only attachment IDs still auto-increment.
@@ -331,8 +371,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
   upload blobs that exist in the current browser IndexedDB.
 - **Site import/export**: site-level import and export from the site dashboard must always cover
   updates, blockers, confirmations, site checklist, checklist custom columns, cable matrix,
-  antenna checklist, DCPL checklist, cable checklist, pending summary, document references,
-  email settings, and linked attachments.
+  antenna checklist, DCPL checklist, cable checklist, pending summary, snag summary, snag history,
+  document references, email settings, and linked attachments.
 - **Document references**: document references are site-specific titled links managed from the
   site dashboard top bar modal and must be included in site delete and site import/export flows.
 - **Scope gating**: site scope checks are case-insensitive. `macro` sites must not expose the
@@ -350,6 +390,8 @@ and `VITE_SUPABASE_ANON_KEY`. Keep `.env.example` committed with placeholders on
 - `/site/:id/dcpl-checklist` - site DCPL checklist
 - `/site/:id/cable-checklist` - site cable checklist
 - `/site/:id/pending-summary` - generated pending summary board
+- `/site/:id/snag-summary` - generated snag summary board
+- `/site/:id/snag/:snagReportId/edit` - edit snag history record
 - `/site/:id/report/new` - new progress update
 - `/site/:id/report/:reportId/edit` - edit progress update
 - `/site/:id/report/:reportId/email` - email draft
@@ -439,12 +481,25 @@ Then check the app in the browser:
 40. Pending summary export to new progress update keeps numbered indentation, sends not-done plus
     partial-done items in the first block, sends done items in the bottom `Pending clear today:`
     block, and includes partial comments inline in the exported text.
-41. Site dashboard export includes checklist custom columns, document references, pending summary
-    data, and the newer antenna, DCPL, and cable checklist data, and site import confirmation
-    clearly describes the incoming counts before replacing current site data.
-42. A newly attached or JSON-restored field proof image can be viewed by another signed-in user on a
+41. Pending summary main lists and sub lists can be renamed, reject duplicate names, and persist
+    after reload.
+42. Snag summary opens from the site dashboard quick actions, generates from pasted numbered/bulleted
+    text after a styled category-selection modal, appends into existing boards, and skips duplicate
+    item names with a warning.
+43. Snag summary items can be assigned `GDC`, `PTA`, or `Nokia`, and the dashboard Snag summary card
+    shows category done/total counts such as `GDC 3/5 - PTA 1/4 - Nokia 0/2`.
+44. Snag summary main lists and sub lists can be renamed, reject duplicate names, and persist after
+    reload.
+45. Snag summary export saves a separate snag-history record filtered by the selected category,
+    does not create a progress update, and does not appear in progress history.
+46. Snag history records show in the dashboard Snag history panel, support category toggle, delete,
+    and rich-note edit, and do not offer email draft generation.
+47. Site dashboard export includes checklist custom columns, document references, pending summary,
+    snag summary, snag history data, and the newer antenna, DCPL, and cable checklist data, and site
+    import confirmation clearly describes the incoming counts before replacing current site data.
+48. A newly attached or JSON-restored field proof image can be viewed by another signed-in user on a
     different browser after the attachment migration and `tracker-attachments` function are deployed.
-43. Admin Field Users -> `Sync this browser` uploads attachment blobs from the current browser cache
+49. Admin Field Users -> `Sync this browser` uploads attachment blobs from the current browser cache
     and reports uploaded / skipped / failed counts.
-44. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
+50. No emoji glyphs, demo site records, hardcoded site stats, placeholder content, or
     website/software QA wording remains in user-facing copy.
