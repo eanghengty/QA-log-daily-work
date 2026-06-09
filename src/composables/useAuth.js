@@ -9,6 +9,7 @@ import {
   setStoredCustomSessionToken,
 } from '../lib/customAuthSession.js'
 import { addCloudActivityLog, isCloudTrackerEnabled, syncTrackerSetupMirror } from '../lib/trackerCloud.js'
+import { syncActivityLogFromCloud } from '../lib/activityLogSync.js'
 import { syncLocalAttachmentsToCloud } from './useAttachments.js'
 
 const CUSTOM_AUTH_EVENT_KEY = 'qa_tracker_custom_auth_event'
@@ -250,6 +251,9 @@ async function syncTrackerSetup(nextUser) {
 
   try {
     await syncTrackerSetupMirror()
+    void syncActivityLogFromCloud().catch((error) => {
+      console.warn('Unable to sync shared activity log.', error)
+    })
     void syncLocalAttachmentsToCloud().catch((error) => {
       console.warn('Unable to sync local attachments with Supabase.', error)
     })

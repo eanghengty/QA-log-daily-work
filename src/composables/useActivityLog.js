@@ -1,81 +1,26 @@
+import { computed } from 'vue'
 import { db } from '../db/index.js'
 import {
   addCloudActivityLog,
   clearCloudActivityLog,
   isCloudTrackerEnabled,
-  listCloudActivityLog,
 } from '../lib/trackerCloud.js'
+import { syncActivityLogFromCloud } from '../lib/activityLogSync.js'
 import { getCurrentActivityActor } from './useActivityActor.js'
 import { useLiveQuery } from './useLiveQuery.js'
 
-let syncPromise = null
-
-function activityKey(entry) {
-  return [
-    entry.action || '',
-    entry.detail || '',
-    entry.userId || '',
-    entry.userName || '',
-    entry.userEmail || '',
-    entry.at || '',
-  ].join('\u001f')
-}
-
-async function syncActivityLogFromCloud() {
-  if (!isCloudTrackerEnabled()) return
-  if (syncPromise) return syncPromise
-
-  syncPromise = (async () => {
-    try {
-      let { activityLog = [] } = await listCloudActivityLog()
-      const localLogs = await db.activityLog.orderBy('id').toArray()
-      const cloudKeys = new Set(activityLog.map(activityKey))
-      const localOnlyLogs = localLogs.filter((entry) => !entry.cloudId && !cloudKeys.has(activityKey(entry)))
-
-      if (localOnlyLogs.length) {
-        for (const entry of localOnlyLogs) {
-          await addCloudActivityLog({
-            action: entry.action || '',
-            detail: entry.detail || '',
-            userId: entry.userId || '',
-            userName: entry.userName || '',
-            userEmail: entry.userEmail || '',
-            at: entry.at || new Date().toISOString(),
-          })
-        }
-
-        ;({ activityLog = [] } = await listCloudActivityLog())
-      }
-
-      await db.transaction('rw', db.activityLog, async () => {
-        await db.activityLog.clear()
-        if (activityLog.length) {
-          await db.activityLog.bulkAdd(
-            activityLog.map((entry) => ({
-              cloudId: entry.cloudId || '',
-              action: entry.action || '',
-              detail: entry.detail || '',
-              userId: entry.userId || '',
-              userName: entry.userName || '',
-              userEmail: entry.userEmail || '',
-              at: entry.at || new Date().toISOString(),
-            })),
-          )
-        }
-      })
-    } catch (error) {
-      console.warn('Unable to sync shared activity log.', error)
-    } finally {
-      syncPromise = null
-    }
-  })()
-
-  return syncPromise
-}
-
 export function useActivityLog() {
   const { data: logs } = useLiveQuery(() =>
-    db.activityLog.orderBy('id').reverse().limit(200).toArray()
+    db.activityLog.toArray()
+  )
+  const sortedLogs = computed(() =>
+    [...(logs.value || [])]
+      .sort((a, b) => {
+        const dateCompare = new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime()
+        if (dateCompare !== 0) return dateCompare
+        return Number(b.id || 0) - Number(a.id || 0)
+      })
+      .slice(0, 200),
   )
 
   void syncActivityLogFromCloud()
@@ -112,5 +57,5 @@ export function useActivityLog() {
     await db.activityLog.clear()
   }
 
-  return { logs, logAction, clearLog, refreshLog: syncActivityLogFromCloud }
+  return { logs: sortedLogs, logAction, clearLog, refreshLog: syncActivityLogFromCloud }
 }
