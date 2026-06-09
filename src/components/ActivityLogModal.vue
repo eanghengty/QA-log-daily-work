@@ -1,12 +1,13 @@
 <script setup>
+import { watch } from 'vue'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { getActivityActorLabel } from '../composables/useActivityActor.js'
 import MaterialIcon from './MaterialIcon.vue'
 
-defineProps({ modelValue: { type: Boolean, default: false } })
+const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue'])
 
-const { logs, clearLog } = useActivityLog()
+const { logs, clearLog, refreshLog } = useActivityLog()
 
 function close() { emit('update:modelValue', false) }
 
@@ -53,6 +54,13 @@ async function confirmClear() {
   if (!window.confirm('Clear all activity log entries? This cannot be undone.')) return
   await clearLog()
 }
+
+watch(
+  () => props.modelValue,
+  (isOpen) => {
+    if (isOpen) void refreshLog()
+  },
+)
 </script>
 
 <template>
@@ -62,7 +70,7 @@ async function confirmClear() {
         <div class="between p-5" style="border-bottom: 1.5px solid var(--line); align-items: center">
           <div class="col gap-1">
             <div class="title-md">Activity log</div>
-            <div class="tiny" style="color: var(--ink-3)">All actions recorded in this browser</div>
+            <div class="tiny" style="color: var(--ink-3)">Shared activity visible to signed-in field users</div>
           </div>
           <div class="row gap-2">
             <button type="button" class="btn btn-ghost" style="font-size: 11px; padding: 4px 8px" @click="confirmClear">

@@ -430,6 +430,25 @@ export async function deleteCloudSnagReport(id) {
   })
 }
 
+export async function listCloudActivityLog() {
+  return await callTrackerFunction('tracker-core', {
+    action: 'list-activity-log',
+  })
+}
+
+export async function addCloudActivityLog(entry) {
+  return await callTrackerFunction('tracker-core', {
+    action: 'add-activity-log',
+    entry,
+  })
+}
+
+export async function clearCloudActivityLog() {
+  return await callTrackerFunction('tracker-core', {
+    action: 'clear-activity-log',
+  })
+}
+
 export async function uploadCloudAttachment(attachment) {
   return await callTrackerFunction('tracker-attachments', {
     action: 'upload',

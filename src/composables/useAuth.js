@@ -8,7 +8,7 @@ import {
   getStoredCustomSessionToken,
   setStoredCustomSessionToken,
 } from '../lib/customAuthSession.js'
-import { syncTrackerSetupMirror } from '../lib/trackerCloud.js'
+import { addCloudActivityLog, isCloudTrackerEnabled, syncTrackerSetupMirror } from '../lib/trackerCloud.js'
 import { syncLocalAttachmentsToCloud } from './useAttachments.js'
 
 const CUSTOM_AUTH_EVENT_KEY = 'qa_tracker_custom_auth_event'
@@ -126,18 +126,29 @@ async function writeAuthActivity(action, userPayload, detail = '') {
   const actor = buildUser(userPayload)
   const displayName = `${userPayload?.fullName || ''}`.trim()
   const email = `${userPayload?.email || ''}`.trim()
+  const entry = {
+    action,
+    detail,
+    userId: actor?.id || '',
+    userName: displayName || email || 'Unknown user',
+    userEmail: email,
+    at: new Date().toISOString(),
+  }
 
   try {
-    await db.activityLog.add({
-      action,
-      detail,
-      userId: actor?.id || '',
-      userName: displayName || email || 'Unknown user',
-      userEmail: email,
-      at: new Date().toISOString(),
-    })
+    if (isCloudTrackerEnabled()) {
+      await addCloudActivityLog(entry)
+      return
+    }
+
+    await db.activityLog.add(entry)
   } catch (error) {
     console.warn('Unable to record auth activity.', error)
+    try {
+      await db.activityLog.add(entry)
+    } catch (localError) {
+      console.warn('Unable to record local auth activity.', localError)
+    }
   }
 }
 

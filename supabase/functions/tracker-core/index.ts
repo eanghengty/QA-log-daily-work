@@ -54,6 +54,35 @@ function mapBoardRow(row: Record<string, unknown>) {
   }
 }
 
+function mapActivityLogRow(row: Record<string, unknown>) {
+  return {
+    cloudId: row.id,
+    action: row.action || '',
+    detail: row.detail || '',
+    userId: row.user_id || '',
+    userName: row.user_name || '',
+    userEmail: row.user_email || '',
+    at: row.created_at,
+  }
+}
+
+function normalizeActivityLogInput(entry: Record<string, unknown>) {
+  const action = `${entry.action || ''}`.trim()
+  if (!action) {
+    const error = new Error('Activity action is required.')
+    error.name = 'ValidationError'
+    throw error
+  }
+
+  return {
+    action,
+    detail: `${entry.detail || ''}`.trim(),
+    userName: `${entry.userName || entry.user_name || ''}`.trim(),
+    userEmail: `${entry.userEmail || entry.user_email || ''}`.trim(),
+    at: `${entry.at || entry.created_at || ''}`.trim(),
+  }
+}
+
 function normalizeBoardsPayload(boards: unknown) {
   if (!boards || typeof boards !== 'object') return []
 
@@ -243,6 +272,42 @@ Deno.serve(async (req) => {
         emailSettings: mapEmailSettingsRow(emailSettings || { site_id: siteId }),
         pendingSummary: pendingSummary ? mapPendingSummaryRow(pendingSummary) : null,
       })
+    }
+
+    if (action === 'list-activity-log') {
+      const { data, error } = await admin
+        .from('activity_log')
+        .select('id, action, detail, user_id, user_name, user_email, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200)
+
+      if (error) throw error
+      return jsonResponse(200, { activityLog: (data || []).map(mapActivityLogRow) })
+    }
+
+    if (action === 'add-activity-log') {
+      const entry = normalizeActivityLogInput(body.entry || {})
+      const { data, error } = await admin
+        .from('activity_log')
+        .insert({
+          action: entry.action,
+          detail: entry.detail,
+          user_id: user.id,
+          user_name: entry.userName || user.full_name || user.email || 'Unknown user',
+          user_email: entry.userEmail || user.email || '',
+          ...(entry.at ? { created_at: entry.at } : {}),
+        })
+        .select('id, action, detail, user_id, user_name, user_email, created_at')
+        .single()
+
+      if (error) throw error
+      return jsonResponse(200, { activityLogEntry: mapActivityLogRow(data) })
+    }
+
+    if (action === 'clear-activity-log') {
+      const { error } = await admin.from('activity_log').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (error) throw error
+      return jsonResponse(200, { ok: true })
     }
 
     if (action === 'list-reports') {
