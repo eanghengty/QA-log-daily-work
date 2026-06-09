@@ -186,6 +186,10 @@ function openReportEmail(reportId) {
   router.push(buildSitePath(siteId, `/report/${reportId}/email`))
 }
 
+function editSnagReport(reportId) {
+  router.push(buildSitePath(siteId, `/snag/${reportId}/edit`))
+}
+
 function editIssue(issueId) {
   router.push(buildSitePath(siteId, `/issue/${issueId}/edit`))
 }
@@ -672,6 +676,10 @@ function summarizeImportPayload(data) {
                     </option>
                   </select>
                 </label>
+                <button type="button" class="chip" @click="editSnagReport(report.id)">
+                  <MaterialIcon name="edit" :size="14" />
+                  edit
+                </button>
               </div>
               <div
                 class="report-history-notes"

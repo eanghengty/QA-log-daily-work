@@ -30,6 +30,11 @@ function getCloudSnagReportsState(siteId) {
   return cloudSnagReportsBySite.get(siteId)
 }
 
+function localRecordKey(id) {
+  const numberId = Number(id)
+  return Number.isFinite(numberId) && `${numberId}` === `${id}` ? numberId : id
+}
+
 async function loadCloudSnagReports(siteId, state, { force = false } = {}) {
   if (!force && state.ready) return state.data.value
   if (state.pending) return await state.pending
@@ -108,6 +113,30 @@ export function useSnagReports(siteId) {
     await db.snagReports.update(id, payload)
   }
 
+  async function getSnagReportById(id) {
+    if (isCloudTrackerEnabled()) {
+      const state = getCloudSnagReportsState(siteId)
+      const reports = await loadCloudSnagReports(siteId, state)
+      return reports.find((report) => report.id === id) || null
+    }
+
+    return await db.snagReports.get(localRecordKey(id))
+  }
+
+  function useSnagReportById(id) {
+    if (isCloudTrackerEnabled()) {
+      const state = getCloudSnagReportsState(siteId)
+      void loadCloudSnagReports(siteId, state)
+      return {
+        data: computed(() => (state.data.value || []).find((report) => report.id === id) || null),
+        loading: state.loading,
+        error: state.error,
+      }
+    }
+
+    return useLiveQuery(() => db.snagReports.get(localRecordKey(id)))
+  }
+
   async function deleteSnagReport(id) {
     if (isCloudTrackerEnabled()) {
       await deleteCloudSnagReport(id)
@@ -126,6 +155,8 @@ export function useSnagReports(siteId) {
     addSnagReport,
     updateSnagReport,
     deleteSnagReport,
+    getSnagReportById,
+    useSnagReportById,
     summary: computed(() => ({
       total: snagReports.value?.length || 0,
     })),

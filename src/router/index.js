@@ -95,6 +95,11 @@ const routes = [
     component: () => import('../views/SnagSummaryView.vue'),
   },
   {
+    path: '/site/:id/snag/:snagReportId/edit',
+    name: 'edit-snag-report',
+    component: () => import('../views/SnagReportView.vue'),
+  },
+  {
     path: '/site/:id/report/new',
     name: 'new-report',
     component: () => import('../views/NewReportView.vue'),
