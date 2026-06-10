@@ -246,6 +246,13 @@ function toggleReport(id) {
   expandedReports.value = s
 }
 
+const expandedSnagReports = ref(new Set())
+function toggleSnagReport(id) {
+  const s = new Set(expandedSnagReports.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  expandedSnagReports.value = s
+}
+
 const importFileRef = ref(null)
 const siteStatus = ref('')
 const showDocumentReferenceModal = ref(false)
@@ -713,8 +720,20 @@ function summarizeImportPayload(data) {
               </div>
               <div
                 class="report-history-notes"
+                :style="expandedSnagReports.has(report.id) ? {} : { overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }"
+                @click="toggleSnagReport(report.id)"
                 v-html="reportNotesPreviewHtml(report)"
               />
+              <button
+                v-if="reportHasLongNotes(report)"
+                type="button"
+                class="chip"
+                style="align-self: flex-start; font-size: 11px"
+                @click="toggleSnagReport(report.id)"
+              >
+                <MaterialIcon :name="expandedSnagReports.has(report.id) ? 'expand_less' : 'expand_more'" :size="13" />
+                {{ expandedSnagReports.has(report.id) ? 'Show less' : 'Show more' }}
+              </button>
             </div>
             <div class="col gap-1" style="flex-shrink: 0; align-self: center">
               <template v-if="pendingDelete === `snag-${report.id}`">
