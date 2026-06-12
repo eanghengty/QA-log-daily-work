@@ -11,8 +11,11 @@ const STATUS_DONE = 'done'
 const STATUS_NOT_DONE = 'not done'
 const STATUS_NA = 'n/a'
 const BASE_WIDTHS = [28, 40, 16, 36]
+const EXPORT_FIXED_WIDTHS = [28, 16, 36]
+const TASK_LEVEL_WIDTH = 40
 const CUSTOM_COLUMN_WIDTH = 22
 const LOG_COLUMN_WIDTH = 52
+const TEMPLATE_TASK_DEPTH = 2
 
 export const CHECKLIST_EXPORT_HEADERS = [...TEMPLATE_HEADERS, 'Log']
 export const CHECKLIST_EXPORT_COLS = buildChecklistColumnWidths([])
@@ -21,9 +24,15 @@ export function downloadChecklistTemplate(customColumns = []) {
   const workbook = XLSX.utils.book_new()
   const normalizedCustomColumns = normalizeChecklistCustomColumns(customColumns)
   const worksheet = XLSX.utils.aoa_to_sheet([
-    [...TEMPLATE_HEADERS, ...normalizedCustomColumns.map((column) => column.label)],
+    [
+      'Main task',
+      ...buildTaskLevelHeaders(TEMPLATE_TASK_DEPTH),
+      'Status',
+      'Comment',
+      ...normalizedCustomColumns.map((column) => column.label),
+    ],
   ])
-  worksheet['!cols'] = buildChecklistColumnWidths(normalizedCustomColumns, false)
+  worksheet['!cols'] = buildChecklistColumnWidths(normalizedCustomColumns, false, TEMPLATE_TASK_DEPTH)
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Checklist Template')
   XLSX.writeFile(workbook, 'site-checklist-template.xlsx')
@@ -35,7 +44,11 @@ export function downloadChecklistExport(checklists, siteName = 'site', customCol
   const rows = buildChecklistExportRows(checklists || [], normalizedCustomColumns)
   const worksheet = XLSX.utils.aoa_to_sheet(rows)
 
-  worksheet['!cols'] = buildChecklistColumnWidths(normalizedCustomColumns, true)
+  worksheet['!cols'] = buildChecklistColumnWidths(
+    normalizedCustomColumns,
+    true,
+    getExportDepthFromRows(rows)
+  )
 
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Checklist Export')
   XLSX.writeFile(workbook, `${toFileSlug(siteName)}-checklist-export.xlsx`)
@@ -43,12 +56,16 @@ export function downloadChecklistExport(checklists, siteName = 'site', customCol
 
 export function buildChecklistExportRows(checklists, customColumns = []) {
   const normalizedCustomColumns = normalizeChecklistCustomColumns(customColumns)
+  const taskDepth = getMaxChecklistDepth(checklists || [])
   const exportHeaders = [
-    ...TEMPLATE_HEADERS,
+    'Main task',
+    ...buildTaskLevelHeaders(taskDepth),
+    'Status',
+    'Comment',
     ...normalizedCustomColumns.map((column) => column.label),
     'Log',
   ]
-  return [exportHeaders, ...buildChecklistRows(checklists || [], normalizedCustomColumns)]
+  return [exportHeaders, ...buildChecklistRows(checklists || [], normalizedCustomColumns, taskDepth)]
 }
 
 export async function parseChecklistSpreadsheet(file) {
@@ -75,6 +92,10 @@ export async function parseChecklistSpreadsheet(file) {
   const normalizedHeaders = headerCells.map((value) => normalizeHeader(value))
   const mainTaskIndex = normalizedHeaders.findIndex((value) => value === 'maintask')
   const subTaskIndex = normalizedHeaders.findIndex((value) => value === 'subtask')
+  const subTaskLevelIndexes = normalizedHeaders
+    .map((value, index) => ({ value, index }))
+    .filter((column) => /^subtasklevel\d*$/.test(column.value))
+    .map((column) => column.index)
   const statusIndex = normalizedHeaders.findIndex((value) => value === 'status')
   const commentIndex = normalizedHeaders.findIndex((value) => value === 'comment')
   const logIndex = normalizedHeaders.findIndex((value) => value === 'log')
@@ -103,7 +124,9 @@ export async function parseChecklistSpreadsheet(file) {
   rows.slice(1).forEach((row, index) => {
     const rowNumber = index + 2
     const rawMainTask = toCellText(row[mainTaskIndex])
-    const rawSubTask = toCellText(row[subTaskIndex])
+    const taskPath = [subTaskIndex, ...subTaskLevelIndexes]
+      .map((columnIndex) => toCellText(row[columnIndex]))
+      .filter(Boolean)
     const rawStatus = statusIndex === -1 ? '' : toCellText(row[statusIndex])
     const rawComment = commentIndex === -1 ? '' : toCellText(row[commentIndex])
 
@@ -112,9 +135,8 @@ export async function parseChecklistSpreadsheet(file) {
     }
 
     const mainTask = rawMainTask || lastMainTask
-    const subTask = rawSubTask
 
-    if (!mainTask && !subTask) return
+    if (!mainTask && !taskPath.length) return
 
     if (!mainTask) {
       throw new Error(`Row ${rowNumber} is missing a main task.`)
@@ -127,7 +149,7 @@ export async function parseChecklistSpreadsheet(file) {
       groups.push(group)
     }
 
-    if (subTask) {
+    if (taskPath.length) {
       const fieldValues = Object.fromEntries(
         customColumns.map((column) => [
           column.id,
@@ -135,8 +157,7 @@ export async function parseChecklistSpreadsheet(file) {
         ])
       )
 
-      groupMap.get(key).items.push({
-        title: subTask,
+      addParsedChecklistItem(groupMap.get(key).items, taskPath, {
         status: normalizeImportedStatus(rawStatus),
         comment: rawComment,
         fieldValues,
@@ -154,8 +175,13 @@ export async function parseChecklistSpreadsheet(file) {
   }
 }
 
-function buildChecklistColumnWidths(customColumns, includeLog = true) {
-  const widths = [...BASE_WIDTHS, ...customColumns.map(() => CUSTOM_COLUMN_WIDTH)]
+function buildChecklistColumnWidths(customColumns, includeLog = true, taskDepth = 1) {
+  const widths = [
+    ...(taskDepth > 1
+      ? [28, ...Array.from({ length: Math.max(taskDepth, 1) }, () => TASK_LEVEL_WIDTH), ...EXPORT_FIXED_WIDTHS]
+      : BASE_WIDTHS),
+    ...customColumns.map(() => CUSTOM_COLUMN_WIDTH),
+  ]
   if (includeLog) widths.push(LOG_COLUMN_WIDTH)
   return widths.map((wch) => ({ wch }))
 }
@@ -174,14 +200,41 @@ function normalizeKey(value) {
   return String(value || '').trim().toLowerCase()
 }
 
-function buildChecklistRows(checklists, customColumns) {
+function addParsedChecklistItem(items, path, itemData) {
+  const [title, ...restPath] = path
+  if (!title) return
+
+  let item = items.find((entry) => normalizeKey(entry.title) === normalizeKey(title))
+  if (!item) {
+    item = {
+      title,
+      status: STATUS_NOT_DONE,
+      comment: '',
+      fieldValues: {},
+      childItems: [],
+    }
+    items.push(item)
+  }
+
+  if (!restPath.length) {
+    item.status = itemData.status
+    item.comment = itemData.comment
+    item.fieldValues = itemData.fieldValues
+    return
+  }
+
+  item.childItems = Array.isArray(item.childItems) ? item.childItems : []
+  addParsedChecklistItem(item.childItems, restPath, itemData)
+}
+
+function buildChecklistRows(checklists, customColumns, exportDepth) {
   return checklists.flatMap((checklist) => {
     const items = checklist.items || []
 
     if (!items.length) {
       return [[
         checklist.title || '',
-        '',
+        ...Array.from({ length: exportDepth }, () => ''),
         '',
         '',
         ...customColumns.map(() => ''),
@@ -189,15 +242,66 @@ function buildChecklistRows(checklists, customColumns) {
       ]]
     }
 
-    return items.map((item) => [
-      checklist.title || '',
-      item.title || '',
-      formatExportStatus(item.status),
-      item.comment || '',
-      ...customColumns.map((column) => item.fieldValues?.[column.id] || ''),
-      formatStatusHistory(item.statusHistory),
-    ])
+    return items.flatMap((item) =>
+      buildChecklistItemRows(checklist.title, item, customColumns, [item.title], exportDepth)
+    )
   })
+}
+
+function buildChecklistItemRows(mainTask, item, customColumns, path, exportDepth) {
+  return [
+    buildChecklistItemRow(mainTask, item, customColumns, path, exportDepth),
+    ...getChildItems(item).flatMap((childItem) =>
+      buildChecklistItemRows(
+        mainTask,
+        childItem,
+        customColumns,
+        [...path, childItem.title],
+        exportDepth
+      )
+    ),
+  ]
+}
+
+function buildChecklistItemRow(mainTask, item, customColumns, path, exportDepth) {
+  return [
+    mainTask || '',
+    ...Array.from({ length: exportDepth }, (_, index) => path[index] || ''),
+    formatExportStatus(item.status),
+    item.comment || '',
+    ...customColumns.map((column) => item.fieldValues?.[column.id] || ''),
+    formatStatusHistory(item.statusHistory),
+  ]
+}
+
+function getChildItems(item) {
+  return Array.isArray(item?.childItems) ? item.childItems : []
+}
+
+function getMaxChecklistDepth(checklists) {
+  return Math.max(
+    1,
+    ...(checklists || []).flatMap((checklist) =>
+      (checklist.items || []).map((item) => getItemDepth(item))
+    )
+  )
+}
+
+function getItemDepth(item) {
+  const childDepths = getChildItems(item).map((childItem) => getItemDepth(childItem))
+  return 1 + (childDepths.length ? Math.max(...childDepths) : 0)
+}
+
+function buildTaskLevelHeaders(taskDepth) {
+  return Array.from({ length: Math.max(taskDepth, 1) }, (_, index) =>
+    index === 0 ? 'Sub task' : `Subtask level ${index + 1}`
+  )
+}
+
+function getExportDepthFromRows(rows) {
+  const header = rows?.[0] || []
+  const statusIndex = header.findIndex((value) => value === 'Status')
+  return statusIndex > 0 ? statusIndex - 1 : 1
 }
 
 function formatExportStatus(status) {

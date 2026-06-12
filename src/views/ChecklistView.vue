@@ -20,6 +20,7 @@ import { buildSitePath } from '../lib/siteRouting.js'
 import Topbar from '../components/Topbar.vue'
 import StatCard from '../components/StatCard.vue'
 import MaterialIcon from '../components/MaterialIcon.vue'
+import ChecklistNestedSubtasks from '../components/ChecklistNestedSubtasks.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +40,10 @@ const {
   setSubItemStatus,
   setSubItemComment,
   setSubItemFieldValue,
+  addChildSubItem,
+  renameChildSubItem,
+  setChildSubItemStatus,
+  deleteChildSubItem,
   deleteSubItem,
   importChecklistGroups,
   reorderChecklists,
@@ -57,6 +62,7 @@ const { logAction } = useActivityLog()
 const newChecklistTitle = ref('')
 const newChecklistDescription = ref('')
 const newSubItemTitles = ref({})
+const newChildSubItemTitles = ref({})
 const importInputRef = ref(null)
 const statusMessage = ref('')
 const statusTone = ref('confirm')
@@ -189,6 +195,14 @@ function openStatusLogModal(checklist, item) {
   }
 }
 
+function openNestedStatusLogModal(checklist, item) {
+  activeStatusLog.value = {
+    checklistTitle: checklist.title,
+    itemTitle: item.title,
+    entries: [...getStatusHistory(item)].reverse(),
+  }
+}
+
 function closeStatusLogModal() {
   activeStatusLog.value = null
 }
@@ -241,6 +255,18 @@ async function createSubItem(checklistId) {
   }
 }
 
+async function createNestedSubItem(checklistId, item) {
+  const inputKey = getNestedInputKey(checklistId, item.id)
+  const nextTitle = (newChildSubItemTitles.value[inputKey] || '').trim()
+  if (!nextTitle) return
+
+  await addChildSubItem(checklistId, item.id, nextTitle)
+  newChildSubItemTitles.value = {
+    ...newChildSubItemTitles.value,
+    [inputKey]: '',
+  }
+}
+
 async function handleSubItemRename(checklistId, item, event) {
   const nextTitle = event.target.value.trim()
   if (!nextTitle) {
@@ -265,8 +291,36 @@ async function toggleNotApplicable(checklistId, item) {
   await setSubItemStatus(checklistId, item.id, nextStatus)
 }
 
+async function handleNestedSubItemRename(checklistId, item, event) {
+  const nextTitle = event.target.value.trim()
+  if (!nextTitle) {
+    event.target.value = item.title
+    return
+  }
+
+  if (nextTitle !== item.title) {
+    await renameChildSubItem(checklistId, item.id, item.id, nextTitle)
+  }
+}
+
+async function toggleNestedDone(checklistId, item) {
+  const nextStatus =
+    item.status === CHECKLIST_STATUS.DONE ? CHECKLIST_STATUS.TODO : CHECKLIST_STATUS.DONE
+  await setChildSubItemStatus(checklistId, item.id, item.id, nextStatus)
+}
+
+async function toggleNestedNotApplicable(checklistId, item) {
+  const nextStatus =
+    item.status === CHECKLIST_STATUS.NA ? CHECKLIST_STATUS.TODO : CHECKLIST_STATUS.NA
+  await setChildSubItemStatus(checklistId, item.id, item.id, nextStatus)
+}
+
 async function removeSubItem(checklistId, item) {
   await deleteSubItem(checklistId, item.id)
+}
+
+async function removeNestedSubItem(checklistId, item) {
+  await deleteChildSubItem(checklistId, item.id, item.id)
 }
 
 function openCommentModal(checklistId, item) {
@@ -374,7 +428,11 @@ async function handleCustomFieldChange(checklistId, item, column, event) {
 }
 
 function getChecklistSummary(checklist) {
-  return summarizeChecklistItems(checklist.items || [])
+  return summarizeChecklistItems(getChecklistSummaryItems(checklist))
+}
+
+function getChecklistSummaryItems(checklist) {
+  return flattenChecklistItems(checklist.items || [])
 }
 
 function isCollapsed(checklistId) {
@@ -523,6 +581,28 @@ function getStatusLabel(status) {
 
 function getStatusHistory(item) {
   return Array.isArray(item?.statusHistory) ? item.statusHistory : []
+}
+
+function getChildItems(item) {
+  return Array.isArray(item?.childItems) ? item.childItems : []
+}
+
+function getNestedInputKey(checklistId, itemId) {
+  return `${checklistId}:${itemId}`
+}
+
+function updateNestedDraft(inputKey, value) {
+  newChildSubItemTitles.value = {
+    ...newChildSubItemTitles.value,
+    [inputKey]: value,
+  }
+}
+
+function flattenChecklistItems(items) {
+  return (items || []).flatMap((item) => {
+    const childItems = Array.isArray(item.childItems) ? item.childItems : []
+    return childItems.length ? flattenChecklistItems(childItems) : [item]
+  })
 }
 
 function getStatusLogLabel(entry) {
@@ -840,84 +920,116 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
                 <div
                   v-for="item in checklist.items"
                   :key="item.id"
-                  class="box-soft p-3 checklist-grid checklist-row"
-                  :style="checklistTableStyle"
+                  class="box-soft p-3 col gap-2"
                 >
-                  <div class="small" style="color: var(--ink)">{{ checklist.title }}</div>
+                  <div class="checklist-grid checklist-row" :style="checklistTableStyle">
+                    <div class="small" style="color: var(--ink)">{{ checklist.title }}</div>
 
-                  <input
-                    class="field grow"
-                    type="text"
-                    :value="item.title"
-                    @change="handleSubItemRename(checklist.id, item, $event)"
-                  />
+                    <input
+                      class="field grow"
+                      type="text"
+                      :value="item.title"
+                      @change="handleSubItemRename(checklist.id, item, $event)"
+                    />
 
-                  <div class="row gap-2" style="flex-wrap: wrap">
-                    <label class="row items-center gap-2">
-                      <input
-                        type="checkbox"
-                        :checked="item.status === CHECKLIST_STATUS.DONE"
-                        @change="toggleDone(checklist.id, item)"
-                      />
-                      <span class="small" style="color: var(--ink)">Done</span>
-                    </label>
-                    <span class="chip" :class="getStatusClass(item.status)">
-                      <MaterialIcon
-                        :name="item.status === CHECKLIST_STATUS.DONE ? 'check_circle' : item.status === CHECKLIST_STATUS.NA ? 'do_not_disturb_on' : 'radio_button_unchecked'"
-                        :size="14"
-                      />
-                      {{ getStatusLabel(item.status) }}
-                    </span>
-                    <button
-                      type="button"
-                      class="chip"
-                      :class="item.status === CHECKLIST_STATUS.NA ? 'chip-neutral' : ''"
-                      @click="toggleNotApplicable(checklist.id, item)"
-                    >
-                      <MaterialIcon name="do_not_disturb_on" :size="14" />
-                      {{ item.status === CHECKLIST_STATUS.NA ? 'Clear N/A' : 'Mark N/A' }}
+                    <div class="row gap-2" style="flex-wrap: wrap">
+                      <label class="row items-center gap-2">
+                        <input
+                          type="checkbox"
+                          :checked="item.status === CHECKLIST_STATUS.DONE"
+                          @change="toggleDone(checklist.id, item)"
+                        />
+                        <span class="small" style="color: var(--ink)">Done</span>
+                      </label>
+                      <span class="chip" :class="getStatusClass(item.status)">
+                        <MaterialIcon
+                          :name="item.status === CHECKLIST_STATUS.DONE ? 'check_circle' : item.status === CHECKLIST_STATUS.NA ? 'do_not_disturb_on' : 'radio_button_unchecked'"
+                          :size="14"
+                        />
+                        {{ getStatusLabel(item.status) }}
+                      </span>
+                      <button
+                        type="button"
+                        class="chip"
+                        :class="item.status === CHECKLIST_STATUS.NA ? 'chip-neutral' : ''"
+                        @click="toggleNotApplicable(checklist.id, item)"
+                      >
+                        <MaterialIcon name="do_not_disturb_on" :size="14" />
+                        {{ item.status === CHECKLIST_STATUS.NA ? 'Clear N/A' : 'Mark N/A' }}
+                      </button>
+                    </div>
+
+                    <button type="button" class="chip" @click="openCommentModal(checklist.id, item)">
+                      <MaterialIcon name="comment" :size="14" />
+                      {{ item.comment ? 'Comment' : 'Add comment' }}
                     </button>
+
+                    <template v-for="column in customColumns" :key="column.id">
+                      <input
+                        v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
+                        class="field"
+                        type="text"
+                        :value="getCustomFieldValue(item, column)"
+                        :placeholder="column.label"
+                        @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                      />
+                      <input
+                        v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
+                        class="field"
+                        type="number"
+                        :value="getCustomFieldValue(item, column)"
+                        :placeholder="column.label"
+                        @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                      />
+                      <input
+                        v-else
+                        class="field"
+                        type="date"
+                        :value="getCustomFieldValue(item, column)"
+                        @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                      />
+                    </template>
+
+                    <div class="row gap-2" style="flex-wrap: wrap">
+                      <button type="button" class="chip" @click="openStatusLogModal(checklist, item)">
+                        <MaterialIcon name="history" :size="14" />
+                        Log
+                      </button>
+                      <button type="button" class="chip" @click="removeSubItem(checklist.id, item)">
+                        <MaterialIcon name="delete" :size="14" />
+                        Remove
+                      </button>
+                    </div>
                   </div>
 
-                  <button type="button" class="chip" @click="openCommentModal(checklist.id, item)">
-                    <MaterialIcon name="comment" :size="14" />
-                    {{ item.comment ? 'Comment' : 'Add comment' }}
-                  </button>
+                  <ChecklistNestedSubtasks
+                    v-if="getChildItems(item).length"
+                    :items="getChildItems(item)"
+                    :checklist-id="checklist.id"
+                    :draft-titles="newChildSubItemTitles"
+                    :status-class="getStatusClass"
+                    :status-label="getStatusLabel"
+                    @add-child="(targetItem) => createNestedSubItem(checklist.id, targetItem)"
+                    @rename="(targetItem, event) => handleNestedSubItemRename(checklist.id, targetItem, event)"
+                    @toggle-done="(targetItem) => toggleNestedDone(checklist.id, targetItem)"
+                    @toggle-na="(targetItem) => toggleNestedNotApplicable(checklist.id, targetItem)"
+                    @open-log="(targetItem) => openNestedStatusLogModal(checklist, targetItem)"
+                    @remove="(targetItem) => removeNestedSubItem(checklist.id, targetItem)"
+                    @update-draft="updateNestedDraft"
+                  />
 
-                  <template v-for="column in customColumns" :key="column.id">
+                  <div class="row gap-2 child-subtask-add" style="flex-wrap: wrap">
                     <input
-                      v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
-                      class="field"
+                      :value="newChildSubItemTitles[getNestedInputKey(checklist.id, item.id)] || ''"
+                      class="field grow"
                       type="text"
-                      :value="getCustomFieldValue(item, column)"
-                      :placeholder="column.label"
-                      @change="handleCustomFieldChange(checklist.id, item, column, $event)"
+                      placeholder="Add subtask under this sub check"
+                      @input="updateNestedDraft(getNestedInputKey(checklist.id, item.id), $event.target.value)"
+                      @keydown.enter.prevent="createNestedSubItem(checklist.id, item)"
                     />
-                    <input
-                      v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
-                      class="field"
-                      type="number"
-                      :value="getCustomFieldValue(item, column)"
-                      :placeholder="column.label"
-                      @change="handleCustomFieldChange(checklist.id, item, column, $event)"
-                    />
-                    <input
-                      v-else
-                      class="field"
-                      type="date"
-                      :value="getCustomFieldValue(item, column)"
-                      @change="handleCustomFieldChange(checklist.id, item, column, $event)"
-                    />
-                  </template>
-
-                  <div class="row gap-2" style="flex-wrap: wrap">
-                    <button type="button" class="chip" @click="openStatusLogModal(checklist, item)">
-                      <MaterialIcon name="history" :size="14" />
-                      Log
-                    </button>
-                    <button type="button" class="chip" @click="removeSubItem(checklist.id, item)">
-                      <MaterialIcon name="delete" :size="14" />
-                      Remove
+                    <button type="button" class="chip" @click="createNestedSubItem(checklist.id, item)">
+                      <MaterialIcon name="subdirectory_arrow_right" :size="14" />
+                      Add subtask
                     </button>
                   </div>
                 </div>
@@ -1255,5 +1367,25 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
 .header-remove {
   padding: 2px 8px;
   font-size: 10px;
+}
+
+.child-subtask-list,
+.child-subtask-add {
+  margin-left: 28px;
+  padding-left: 14px;
+  border-left: 2px dashed var(--line);
+}
+
+.child-subtask-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, auto) minmax(130px, auto);
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .child-subtask-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

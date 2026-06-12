@@ -138,6 +138,68 @@ export function useChecklists(siteId) {
     })
   }
 
+  async function addChildSubItem(checklistId, itemId, title) {
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
+    if (!checklist) return
+
+    const childTitle = String(title || '').trim()
+    if (!childTitle) return
+
+    const items = addChildItemById(checklist.items || [], itemId, childTitle)
+
+    return await updateChecklist(checklist.id, { items })
+  }
+
+  async function renameChildSubItem(checklistId, itemId, childItemId, title) {
+    const childTitle = String(title || '').trim()
+    if (!childTitle) return
+
+    return await updateChildSubItem(checklistId, itemId, childItemId, { title: childTitle })
+  }
+
+  async function setChildSubItemStatus(checklistId, itemId, childItemId, status) {
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
+    if (!checklist) return
+
+    const nextStatus = normalizeStatus(status)
+    const items = updateNestedItemById(checklist.items || [], childItemId, (childItem) => {
+      const previousStatus = normalizeStatus(childItem.status)
+      if (previousStatus === nextStatus) return childItem
+
+      return {
+        ...childItem,
+        status: nextStatus,
+        statusHistory: [
+          ...(Array.isArray(childItem.statusHistory) ? childItem.statusHistory : []),
+          createStatusHistoryEntry(previousStatus, nextStatus),
+        ],
+      }
+    })
+
+    return await updateChecklist(checklist.id, { items })
+  }
+
+  async function updateChildSubItem(checklistId, itemId, childItemId, updates) {
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
+    if (!checklist) return
+
+    const items = updateNestedItemById(checklist.items || [], childItemId, (childItem) => ({
+      ...childItem,
+      ...updates,
+    }))
+
+    return await updateChecklist(checklist.id, { items })
+  }
+
+  async function deleteChildSubItem(checklistId, itemId, childItemId) {
+    const checklist = await db.checklists.get(localRecordKey(checklistId))
+    if (!checklist) return
+
+    const items = deleteNestedItemById(checklist.items || [], childItemId)
+
+    return await updateChecklist(checklist.id, { items })
+  }
+
   async function setSubItemFieldValue(checklistId, itemId, column, value) {
     const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
@@ -203,6 +265,7 @@ export function useChecklists(siteId) {
               comment: String(item.comment || '').trim(),
               statusHistory: [],
               fieldValues: normalizeItemFieldValues(item.fieldValues, normalizedCustomColumns),
+              childItems: normalizeImportedChildItems(item.childItems, normalizedCustomColumns),
             }))
 
           summary.skippedSubItems += normalizedItems.length - freshItems.length
@@ -233,6 +296,7 @@ export function useChecklists(siteId) {
             comment: String(item.comment || '').trim(),
             statusHistory: [],
             fieldValues: normalizeItemFieldValues(item.fieldValues, normalizedCustomColumns),
+            childItems: normalizeImportedChildItems(item.childItems, normalizedCustomColumns),
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -294,6 +358,7 @@ export function useChecklists(siteId) {
         comment: item.comment || '',
         statusHistory: [],
         fieldValues: { ...(item.fieldValues || {}) },
+        childItems: cloneChildItems(item.childItems),
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -322,7 +387,10 @@ export function useChecklists(siteId) {
           }
         })
 
-        await updateChecklist(checklist.id, { items })
+        await db.checklists.update(localRecordKey(checklist.id), {
+          items,
+          updatedAt: new Date().toISOString(),
+        })
       }
     })
     await persistCloudBoard(siteId, 'site-checklist-custom-columns-updated')
@@ -340,6 +408,10 @@ export function useChecklists(siteId) {
     setSubItemStatus,
     setSubItemComment,
     setSubItemFieldValue,
+    addChildSubItem,
+    renameChildSubItem,
+    setChildSubItemStatus,
+    deleteChildSubItem,
     deleteSubItem,
     importChecklistGroups,
     reorderChecklists,
@@ -366,7 +438,7 @@ async function persistCloudBoard(siteId, eventName) {
 }
 
 export function summarizeChecklists(checklists) {
-  const items = checklists.flatMap((checklist) => checklist.items || [])
+  const items = checklists.flatMap((checklist) => flattenChecklistItems(checklist.items || []))
   return summarizeChecklistItems(items, checklists.length)
 }
 
@@ -403,6 +475,58 @@ function normalizeStatus(status) {
     return status
   }
   return CHECKLIST_STATUS.TODO
+}
+
+function flattenChecklistItems(items) {
+  return (items || []).flatMap((item) => {
+    const childItems = Array.isArray(item.childItems) ? item.childItems : []
+    return childItems.length ? flattenChecklistItems(childItems) : [item]
+  })
+}
+
+function addChildItemById(items, targetId, title) {
+  return (items || []).map((item) => {
+    if (item.id === targetId) {
+      return {
+        ...item,
+        childItems: [
+          ...(Array.isArray(item.childItems) ? item.childItems : []),
+          {
+            id: createItemId(),
+            title,
+            status: CHECKLIST_STATUS.TODO,
+            statusHistory: [],
+            childItems: [],
+          },
+        ],
+      }
+    }
+
+    return {
+      ...item,
+      childItems: addChildItemById(item.childItems || [], targetId, title),
+    }
+  })
+}
+
+function updateNestedItemById(items, targetId, updater) {
+  return (items || []).map((item) => {
+    const nextItem = item.id === targetId ? updater(item) : item
+
+    return {
+      ...nextItem,
+      childItems: updateNestedItemById(nextItem.childItems || [], targetId, updater),
+    }
+  })
+}
+
+function deleteNestedItemById(items, targetId) {
+  return (items || [])
+    .filter((item) => item.id !== targetId)
+    .map((item) => ({
+      ...item,
+      childItems: deleteNestedItemById(item.childItems || [], targetId),
+    }))
 }
 
 function createItemId() {
@@ -444,6 +568,7 @@ function uniqueItems(items) {
       status: normalizeStatus(item?.status),
       comment: String(item?.comment || '').trim(),
       fieldValues: { ...(item?.fieldValues || {}) },
+      childItems: Array.isArray(item?.childItems) ? item.childItems : [],
     })
   }
 
@@ -470,6 +595,28 @@ function createEmptyFieldValues(columns) {
   return Object.fromEntries(
     normalizeChecklistCustomColumns(columns).map((column) => [column.id, ''])
   )
+}
+
+function cloneChildItems(childItems) {
+  return (Array.isArray(childItems) ? childItems : []).map((childItem) => ({
+    id: createItemId(),
+    title: childItem.title || '',
+    status: normalizeStatus(childItem.status),
+    statusHistory: [],
+    childItems: cloneChildItems(childItem.childItems),
+  }))
+}
+
+function normalizeImportedChildItems(childItems, customColumns) {
+  return (Array.isArray(childItems) ? childItems : []).map((childItem) => ({
+    id: createItemId(),
+    title: String(childItem?.title || '').trim(),
+    status: normalizeStatus(childItem?.status),
+    comment: String(childItem?.comment || '').trim(),
+    statusHistory: [],
+    fieldValues: normalizeItemFieldValues(childItem?.fieldValues, customColumns),
+    childItems: normalizeImportedChildItems(childItem?.childItems, customColumns),
+  })).filter((childItem) => childItem.title)
 }
 
 function normalizeItemFieldValues(values, customColumns) {

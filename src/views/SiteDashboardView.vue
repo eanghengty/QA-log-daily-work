@@ -72,7 +72,7 @@ const checklistValue = computed(() =>
   `${checklistSummary.value?.done || 0}/${checklistSummary.value?.applicable || 0}`
 )
 const checklistLabel = computed(() => {
-  if (!checklistSummary.value?.total) return 'no sub checks yet'
+  if (!checklistSummary.value?.total) return 'no check items yet'
 
   const todo = checklistSummary.value.todo || 0
   const na = checklistSummary.value.na || 0
