@@ -6,11 +6,31 @@ import { useReports } from '../composables/useReports.js'
 import { useIssues } from '../composables/useIssues.js'
 import { useConfirms } from '../composables/useConfirms.js'
 import { useActionItems } from '../composables/useActionItems.js'
-import { useChecklists } from '../composables/useChecklists.js'
-import { useCableMatrix } from '../composables/useCableMatrix.js'
-import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
-import { useDcplChecklist } from '../composables/useDcplChecklist.js'
-import { useCableChecklist } from '../composables/useCableChecklist.js'
+import { CHECKLIST_STATUS, useChecklists } from '../composables/useChecklists.js'
+import {
+  CABLE_PROOF_STATUS,
+  CABLE_PROOF_TASKS,
+  normalizeProofTasks as normalizeCableMatrixProofTasks,
+  useCableMatrix,
+} from '../composables/useCableMatrix.js'
+import {
+  ANTENNA_PROOF_STATUS,
+  ANTENNA_PROOF_TASKS,
+  normalizeProofTasks as normalizeAntennaProofTasks,
+  useAntennaChecklist,
+} from '../composables/useAntennaChecklist.js'
+import {
+  DCPL_PROOF_STATUS,
+  DCPL_PROOF_TASKS,
+  normalizeProofTasks as normalizeDcplProofTasks,
+  useDcplChecklist,
+} from '../composables/useDcplChecklist.js'
+import {
+  CABLE_CHECKLIST_PROOF_STATUS,
+  CABLE_CHECKLIST_PROOF_TASKS,
+  normalizeProofTasks as normalizeCableChecklistProofTasks,
+  useCableChecklist,
+} from '../composables/useCableChecklist.js'
 import { usePendingSummary } from '../composables/usePendingSummary.js'
 import { useSnagSummary } from '../composables/useSnagSummary.js'
 import { SNAG_SUMMARY_CATEGORIES } from '../composables/useSnagSummary.js'
@@ -34,15 +54,15 @@ const siteId = route.params.id
 
 const { useSiteById } = useSites()
 const { data: site } = useSiteById(siteId)
-const { reports, deleteReport } = useReports(siteId)
+const { reports, addReport, deleteReport } = useReports(siteId)
 const { issues, pendingIssues, deleteIssue } = useIssues(siteId)
 const { confirms, deleteConfirm } = useConfirms(siteId)
 const { actionItems, openActionItems, deleteActionItem } = useActionItems(siteId)
-const { summary: checklistSummary } = useChecklists(siteId)
-const { summary: cableMatrixSummary } = useCableMatrix(siteId)
-const { summary: antennaChecklistSummary } = useAntennaChecklist(siteId)
-const { summary: dcplChecklistSummary } = useDcplChecklist(siteId)
-const { summary: cableChecklistSummary } = useCableChecklist(siteId)
+const { checklists, summary: checklistSummary } = useChecklists(siteId)
+const { rows: cableMatrixRows, summary: cableMatrixSummary } = useCableMatrix(siteId)
+const { rows: antennaChecklistRows, summary: antennaChecklistSummary } = useAntennaChecklist(siteId)
+const { rows: dcplChecklistRows, summary: dcplChecklistSummary } = useDcplChecklist(siteId)
+const { rows: cableChecklistRows, summary: cableChecklistSummary } = useCableChecklist(siteId)
 const { summary: pendingProgressSummary } = usePendingSummary(siteId)
 const { sections: snagProgressSections, summary: snagProgressSummary } = useSnagSummary(siteId)
 const { snagReports, updateSnagReport, deleteSnagReport } = useSnagReports(siteId)
@@ -142,6 +162,260 @@ const topbarSubtitle = computed(() =>
 
 function newReport() {
   router.push(buildSitePath(siteId, '/report/new'))
+}
+
+async function pullUpdate() {
+  const notes = buildPulledUpdateText()
+
+  if (!notes.trim()) {
+    showSiteStatus('No checklist summary available to pull.')
+    return
+  }
+
+  const date = new Date().toISOString().split('T')[0]
+  const savedId = await addReport({
+    siteId,
+    date,
+    time: currentTime(),
+    notes,
+    notesRich: reportNotesHtmlFromText(notes),
+    linkedIssueIds: [],
+    linkedConfirmIds: [],
+    attachmentIds: [],
+  })
+
+  await logAction('Progress update pulled', `${date} - ${siteId}`)
+  showSiteStatus('Pulled checklist summary into progress history.')
+  router.push(buildSitePath(siteId, `/report/${savedId}/edit`))
+}
+
+function currentTime() {
+  return new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function buildPulledUpdateText() {
+  const sections = buildApplicableSummarySections()
+  const pendingBlocks = sections
+    .map((section) => formatNamedSummaryBlock(section.title, section.pending))
+    .filter(Boolean)
+  const clearedBlocks = sections
+    .map((section) => formatNamedSummaryBlock(section.title, section.cleared))
+    .filter(Boolean)
+
+  return [
+    'Pending:',
+    pendingBlocks.length ? pendingBlocks.join('\n\n') : 'No pending items.',
+    '',
+    'Cleared:',
+    clearedBlocks.length ? clearedBlocks.join('\n\n') : 'No cleared items.',
+  ].join('\n')
+}
+
+function buildApplicableSummarySections() {
+  const sections = [
+    {
+      title: 'Site checklist summary',
+      ...buildSiteChecklistProgressSummary(checklists.value || []),
+    },
+  ]
+
+  if (shouldRenderAntennaChecklist.value) {
+    sections.push({
+      title: 'Antenna checklist summary',
+      ...buildProofBoardSummary({
+        rows: antennaChecklistRows.value || [],
+        tasks: ANTENNA_PROOF_TASKS,
+        receivedStatus: ANTENNA_PROOF_STATUS.RECEIVED,
+        normalizeTasks: normalizeAntennaProofTasks,
+        getLabel: (row) => row.assetTag || row.serialNumber || row.description || `Antenna row ${row.order || row.id || ''}`.trim(),
+      }),
+    })
+  }
+
+  sections.push({
+    title: 'Cable matrix summary',
+    ...buildProofBoardSummary({
+      rows: cableMatrixRows.value || [],
+      tasks: CABLE_PROOF_TASKS,
+      receivedStatus: CABLE_PROOF_STATUS.RECEIVED,
+      normalizeTasks: normalizeCableMatrixProofTasks,
+      getLabel: (row) => row.cableNumber || row.cableLabel || `Cable row ${row.order || row.id || ''}`.trim(),
+    }),
+  })
+
+  if (shouldRenderDcplChecklist.value) {
+    sections.push({
+      title: 'DCPL checklist summary',
+      ...buildProofBoardSummary({
+        rows: dcplChecklistRows.value || [],
+        tasks: DCPL_PROOF_TASKS,
+        receivedStatus: DCPL_PROOF_STATUS.RECEIVED,
+        normalizeTasks: normalizeDcplProofTasks,
+        getLabel: (row) => row.label || row.serialNumber || row.description || `DCPL row ${row.order || row.id || ''}`.trim(),
+      }),
+    })
+  }
+
+  sections.push({
+    title: 'Cable checklist summary',
+    ...buildProofBoardSummary({
+      rows: cableChecklistRows.value || [],
+      tasks: CABLE_CHECKLIST_PROOF_TASKS,
+      receivedStatus: CABLE_CHECKLIST_PROOF_STATUS.RECEIVED,
+      normalizeTasks: normalizeCableChecklistProofTasks,
+      getLabel: (row) => row.cableLabel || row.cableId || `Cable row ${row.order || row.id || ''}`.trim(),
+    }),
+  })
+
+  return sections
+}
+
+function formatNamedSummaryBlock(title, entries) {
+  if (!entries.length) return ''
+
+  return [
+    title,
+    ...entries.flatMap((entry) => [
+      entry.titleLines ? `${entry.titleLines.join('\n')}${entry.suffix ? ` (${entry.suffix})` : ''}` : entry.title,
+      ...entry.items.flatMap((item) => [
+        item.line,
+        ...(item.childLines || []),
+      ]),
+    ]),
+  ].join('\n')
+}
+
+function buildProofBoardSummary({ rows, tasks, receivedStatus, normalizeTasks, getLabel }) {
+  const pendingGroups = new Map()
+  const clearedGroups = new Map()
+
+  ;(rows || []).forEach((row) => {
+    const proofTasks = normalizeTasks(row.proofTasks)
+    const pendingTasks = tasks.filter((task) => proofTasks[task.id] !== receivedStatus)
+    const clearedTasks = tasks.filter((task) => proofTasks[task.id] === receivedStatus)
+    const label = getLabel(row)
+
+    if (pendingTasks.length === tasks.length) {
+      addProofSummaryGroup(pendingGroups, 'all', label, [], 'all not yet received')
+    } else if (pendingTasks.length > 0) {
+      addProofSummaryGroup(
+        pendingGroups,
+        pendingTasks.map((task) => task.id).join('|'),
+        label,
+        pendingTasks.map((task) => task.label)
+      )
+    }
+
+    if (clearedTasks.length === tasks.length) {
+      addProofSummaryGroup(clearedGroups, 'all', label, [], 'all received')
+    } else if (clearedTasks.length > 0) {
+      addProofSummaryGroup(
+        clearedGroups,
+        clearedTasks.map((task) => task.id).join('|'),
+        label,
+        clearedTasks.map((task) => task.label)
+      )
+    }
+  })
+
+  return {
+    pending: formatProofSummaryGroups(pendingGroups),
+    cleared: formatProofSummaryGroups(clearedGroups),
+  }
+}
+
+function addProofSummaryGroup(groups, key, label, tasks, suffix = '') {
+  if (!groups.has(key)) {
+    groups.set(key, { labels: [], tasks, suffix })
+  }
+  groups.get(key).labels.push(label)
+}
+
+function formatProofSummaryGroups(groups) {
+  return [...groups.values()].map((group, index) => ({
+    id: `${index}-${group.labels.join('-')}-${group.suffix || group.tasks.join('-')}`,
+    titleLines: chunkLabels(group.labels, 6).map((labels, lineIndex) =>
+      `${lineIndex === 0 ? `${index + 1}. ` : ''}${labels.join(',')}`
+    ),
+    suffix: group.suffix,
+    items: group.tasks.map((task) => ({ line: `- ${task}`, childLines: [] })),
+  }))
+}
+
+function chunkLabels(labels, size) {
+  const chunks = []
+  for (let index = 0; index < labels.length; index += size) {
+    chunks.push(labels.slice(index, index + size))
+  }
+  return chunks
+}
+
+function buildSiteChecklistProgressSummary(sourceChecklists) {
+  const pending = []
+  const cleared = []
+
+  ;(sourceChecklists || []).forEach((checklist, checklistIndex) => {
+    const pendingItems = buildSiteChecklistSummaryItems(checklist.items || [], CHECKLIST_STATUS.TODO, checklistIndex + 1)
+    const clearedItems = buildSiteChecklistSummaryItems(checklist.items || [], CHECKLIST_STATUS.DONE, checklistIndex + 1)
+
+    if (pendingItems.length) {
+      pending.push({
+        id: `${checklist.id}-pending`,
+        title: `${checklistIndex + 1}. ${checklist.title}`,
+        items: pendingItems,
+      })
+    }
+
+    if (clearedItems.length) {
+      cleared.push({
+        id: `${checklist.id}-cleared`,
+        title: `${checklistIndex + 1}. ${checklist.title}`,
+        items: clearedItems,
+      })
+    }
+  })
+
+  return { pending, cleared }
+}
+
+function buildSiteChecklistSummaryItems(items, targetStatus, checklistNumber) {
+  const result = []
+
+  ;(items || []).forEach((item, itemIndex) => {
+    const childLines = buildSiteChecklistChildSummaryLines(item.childItems || [], targetStatus)
+    const itemMatches = item.status === targetStatus
+    if (!itemMatches && !childLines.length) return
+
+    result.push({
+      id: item.id,
+      line: `${checklistNumber}.${itemIndex + 1} ${formatChecklistSummaryTitle(item)}`,
+      childLines,
+    })
+  })
+
+  return result
+}
+
+function buildSiteChecklistChildSummaryLines(items, targetStatus, depth = 0) {
+  return (items || []).flatMap((item) => {
+    const nested = buildSiteChecklistChildSummaryLines(item.childItems || [], targetStatus, depth + 1)
+    if (item.status !== targetStatus && !nested.length) return []
+
+    return [
+      ...(item.status === targetStatus ? [`${'  '.repeat(depth)}- ${formatChecklistSummaryTitle(item)}`] : []),
+      ...nested,
+    ]
+  })
+}
+
+function formatChecklistSummaryTitle(item) {
+  const title = String(item?.title || '').trim() || 'Untitled subtask'
+  const comment = String(item?.comment || '').trim()
+  return comment ? `${title} (${comment})` : title
 }
 
 function logIssue() {
@@ -256,6 +530,14 @@ function toggleSnagReport(id) {
 const importFileRef = ref(null)
 const siteStatus = ref('')
 const showDocumentReferenceModal = ref(false)
+
+function showSiteStatus(message, timeout = 4000) {
+  siteStatus.value = message
+  window.clearTimeout(showSiteStatus.timeoutId)
+  showSiteStatus.timeoutId = window.setTimeout(() => {
+    siteStatus.value = ''
+  }, timeout)
+}
 
 async function handleExportSite() {
   await exportSite(siteId)
@@ -451,6 +733,10 @@ function summarizeImportPayload(data) {
       <button type="button" class="btn btn-ghost" @click="showDocumentReferenceModal = true">
         <MaterialIcon name="link" />
         Document Reference
+      </button>
+      <button type="button" class="btn btn-ghost" @click="pullUpdate">
+        <MaterialIcon name="sync" />
+        Pull update
       </button>
       <button type="button" class="btn btn-ghost" @click="handleExportSiteWorkbook">
         <MaterialIcon name="table_view" />

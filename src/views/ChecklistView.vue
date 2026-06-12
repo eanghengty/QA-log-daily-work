@@ -84,6 +84,7 @@ const showAddColumnModal = ref(false)
 const newColumnName = ref('')
 const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
 const addColumnError = ref('')
+const showChecklistSummaryModal = ref(false)
 
 const title = computed(() => (site.value ? `${site.value.name} checklist` : 'Site checklist'))
 const subtitle = computed(() => {
@@ -96,6 +97,7 @@ const completionLabel = computed(() =>
     ? `${summary.value.completion}% complete`
     : 'No applicable checks yet'
 )
+const checklistProgressSummary = computed(() => buildChecklistProgressSummary(checklists.value || []))
 const checklistTableStyle = computed(() => ({
   gridTemplateColumns: [
     'minmax(140px, 1fr)',
@@ -423,6 +425,34 @@ function closeAddColumnModal() {
   addColumnError.value = ''
 }
 
+function openChecklistSummaryModal() {
+  showChecklistSummaryModal.value = true
+}
+
+function closeChecklistSummaryModal() {
+  showChecklistSummaryModal.value = false
+}
+
+async function copyChecklistSummary(type) {
+  const entries = type === 'cleared'
+    ? checklistProgressSummary.value.cleared
+    : checklistProgressSummary.value.pending
+  const heading = type === 'cleared' ? 'Site Checklist cleared summary:' : 'Site Checklist pending summary:'
+  const text = formatChecklistSummaryText(heading, entries)
+
+  if (!text.trim()) {
+    showStatus(`No ${type} site checklist summary to copy.`, 'issue')
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    showStatus(`${type === 'cleared' ? 'Cleared' : 'Pending'} site checklist summary copied.`)
+  } catch (error) {
+    showStatus('Copy failed. Select the summary text and copy manually.', 'issue')
+  }
+}
+
 async function handleCustomFieldChange(checklistId, item, column, event) {
   await setSubItemFieldValue(checklistId, item.id, column, event.target.value)
 }
@@ -672,6 +702,88 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
     })),
   }))
 }
+
+function buildChecklistProgressSummary(sourceChecklists) {
+  const pending = []
+  const cleared = []
+
+  ;(sourceChecklists || []).forEach((checklist, checklistIndex) => {
+    const pendingItems = buildChecklistSummaryItems(checklist.items || [], CHECKLIST_STATUS.TODO, checklistIndex + 1)
+    const clearedItems = buildChecklistSummaryItems(checklist.items || [], CHECKLIST_STATUS.DONE, checklistIndex + 1)
+
+    if (pendingItems.length) {
+      pending.push({
+        id: `${checklist.id}-pending`,
+        title: `${checklistIndex + 1}. ${checklist.title}`,
+        items: pendingItems,
+      })
+    }
+
+    if (clearedItems.length) {
+      cleared.push({
+        id: `${checklist.id}-cleared`,
+        title: `${checklistIndex + 1}. ${checklist.title}`,
+        items: clearedItems,
+      })
+    }
+  })
+
+  return { pending, cleared }
+}
+
+function buildChecklistSummaryItems(items, targetStatus, checklistNumber) {
+  const result = []
+
+  ;(items || []).forEach((item, itemIndex) => {
+    const childLines = buildChecklistChildSummaryLines(getChildItems(item), targetStatus)
+    const itemMatches = item.status === targetStatus
+
+    if (!itemMatches && !childLines.length) return
+
+    result.push({
+      id: item.id,
+      line: `${checklistNumber}.${itemIndex + 1} ${formatChecklistSummaryItemTitle(item)}`,
+      childLines,
+    })
+  })
+
+  return result
+}
+
+function buildChecklistChildSummaryLines(items, targetStatus, depth = 0) {
+  return (items || []).flatMap((item) => {
+    const nested = buildChecklistChildSummaryLines(getChildItems(item), targetStatus, depth + 1)
+    if (item.status !== targetStatus && !nested.length) return []
+
+    const prefix = `${'  '.repeat(depth)}- `
+    return [
+      ...(item.status === targetStatus ? [`${prefix}${formatChecklistSummaryItemTitle(item)}`] : []),
+      ...nested,
+    ]
+  })
+}
+
+function formatChecklistSummaryItemTitle(item) {
+  const title = String(item?.title || '').trim() || 'Untitled subtask'
+  const comment = String(item?.comment || '').trim()
+  return comment ? `${title} (${comment})` : title
+}
+
+function formatChecklistSummaryText(heading, entries) {
+  if (!entries.length) return ''
+
+  return [
+    heading,
+    ...entries.flatMap((entry) => [
+      entry.title,
+      ...entry.items.flatMap((item) => [
+        item.line,
+        ...item.childLines,
+      ]),
+      '',
+    ]),
+  ].join('\n').trim()
+}
 </script>
 
 <template>
@@ -688,6 +800,10 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
       <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
         <MaterialIcon name="view_column" />
         Add column
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!checklists?.length" @click="openChecklistSummaryModal">
+        <MaterialIcon name="summarize" />
+        Checklist summary
       </button>
       <button type="button" class="btn btn-ghost" @click="handleExportChecklist">
         <MaterialIcon name="download_for_offline" />
@@ -1137,6 +1253,117 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
 
     <Teleport to="body">
       <div
+        v-if="showChecklistSummaryModal"
+        class="add-site-overlay"
+        @click.self="closeChecklistSummaryModal"
+      >
+        <div class="add-site-modal checklist-summary-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Site checklist summary</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeChecklistSummaryModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Site Checklist pending summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ checklistProgressSummary.pending.length }} main</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!checklistProgressSummary.pending.length"
+                  @click="copyChecklistSummary('pending')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!checklistProgressSummary.pending.length" class="box-dash p-4 small">
+              No pending site checklist subtasks.
+            </div>
+            <div v-else class="box p-4 col checklist-summary-list">
+              <div
+                v-for="entry in checklistProgressSummary.pending"
+                :key="entry.id"
+                class="checklist-summary-entry"
+              >
+                <div class="small checklist-summary-title">{{ entry.title }}</div>
+                <div
+                  v-for="item in entry.items"
+                  :key="item.id"
+                  class="checklist-summary-item"
+                >
+                  <div class="small">{{ item.line }}</div>
+                  <div
+                    v-for="line in item.childLines"
+                    :key="line"
+                    class="small checklist-summary-child"
+                  >
+                    {{ line }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-divider" />
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Site Checklist cleared summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ checklistProgressSummary.cleared.length }} main</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!checklistProgressSummary.cleared.length"
+                  @click="copyChecklistSummary('cleared')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!checklistProgressSummary.cleared.length" class="box-dash p-4 small">
+              No cleared site checklist subtasks.
+            </div>
+            <div v-else class="box p-4 col checklist-summary-list">
+              <div
+                v-for="entry in checklistProgressSummary.cleared"
+                :key="entry.id"
+                class="checklist-summary-entry"
+              >
+                <div class="small checklist-summary-title">{{ entry.title }}</div>
+                <div
+                  v-for="item in entry.items"
+                  :key="item.id"
+                  class="checklist-summary-item"
+                >
+                  <div class="small">{{ item.line }}</div>
+                  <div
+                    v-for="line in item.childLines"
+                    :key="line"
+                    class="small checklist-summary-child"
+                  >
+                    {{ line }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-primary" @click="closeChecklistSummaryModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
         v-if="activeCommentEditor"
         class="add-site-overlay"
         @click.self="closeCommentModal"
@@ -1334,6 +1561,45 @@ function remapImportedGroupFieldValues(groups, sourceColumns, targetColumns) {
   max-height: 90vh;
   overflow-y: auto;
   padding: 24px;
+}
+
+.checklist-summary-modal {
+  max-width: 760px;
+}
+
+.checklist-summary-list {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.checklist-summary-entry {
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.checklist-summary-entry:last-child {
+  border-bottom: 0;
+}
+
+.checklist-summary-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.checklist-summary-item {
+  margin-top: 8px;
+  color: var(--ink-2);
+}
+
+.checklist-summary-child {
+  margin-top: 4px;
+  padding-left: 16px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+
+.summary-divider {
+  border-top: 2px dashed var(--line);
 }
 
 .checklist-grid {
