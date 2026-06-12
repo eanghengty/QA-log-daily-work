@@ -466,46 +466,79 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 }
 
 function buildCableProofSummary(sourceRows) {
-  const pending = []
-  const cleared = []
+  const pendingGroups = new Map()
+  const clearedGroups = new Map()
 
-  ;(sourceRows || []).forEach((row, index) => {
+  ;(sourceRows || []).forEach((row) => {
     const proofTasks = getProofTasks(row)
     const pendingTasks = CABLE_PROOF_TASKS.filter((task) => proofTasks[task.id] !== CABLE_PROOF_STATUS.RECEIVED)
     const clearedTasks = CABLE_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_PROOF_STATUS.RECEIVED)
-    const cableNumber = row.cableNumber || row.cableLabel || `Cable row ${index + 1}`
-    const entryNumber = `1.${index + 1}`
+    const cableNumber = row.cableNumber || row.cableLabel || `Cable row ${row.order || row.id || ''}`.trim()
 
     if (pendingTasks.length === CABLE_PROOF_TASKS.length) {
-      pending.push({
-        id: `${row.id}-pending`,
-        title: `${entryNumber} ${cableNumber} (not yet receive)`,
-        tasks: [],
-      })
+      addCableSummaryGroup(pendingGroups, 'all', cableNumber, [], 'all not yet received')
     } else if (pendingTasks.length > 0) {
-      pending.push({
-        id: `${row.id}-pending`,
-        title: `${entryNumber} ${cableNumber}`,
-        tasks: pendingTasks.map((task) => `${task.label} (not yet receive)`),
-      })
+      addCableSummaryGroup(
+        pendingGroups,
+        pendingTasks.map((task) => task.id).join('|'),
+        cableNumber,
+        pendingTasks.map((task) => task.label)
+      )
     }
 
     if (clearedTasks.length === CABLE_PROOF_TASKS.length) {
-      cleared.push({
-        id: `${row.id}-cleared`,
-        title: `${entryNumber} ${cableNumber} (received)`,
-        tasks: [],
-      })
+      addCableSummaryGroup(clearedGroups, 'all', cableNumber, [], 'all received')
     } else if (clearedTasks.length > 0) {
-      cleared.push({
-        id: `${row.id}-cleared`,
-        title: `${entryNumber} ${cableNumber}`,
-        tasks: clearedTasks.map((task) => `${task.label} (received)`),
-      })
+      addCableSummaryGroup(
+        clearedGroups,
+        clearedTasks.map((task) => task.id).join('|'),
+        cableNumber,
+        clearedTasks.map((task) => task.label)
+      )
     }
   })
 
-  return { pending, cleared }
+  return {
+    pending: formatCableSummaryGroups(pendingGroups),
+    cleared: formatCableSummaryGroups(clearedGroups),
+  }
+}
+
+function addCableSummaryGroup(groups, key, cableNumber, tasks, suffix = '') {
+  if (!groups.has(key)) {
+    groups.set(key, {
+      cables: [],
+      tasks,
+      suffix,
+    })
+  }
+
+  groups.get(key).cables.push(cableNumber)
+}
+
+function formatCableSummaryGroups(groups) {
+  return [...groups.values()].map((group, index) => {
+    const cableLines = chunkCableNumbers(group.cables, 6).map((cables, lineIndex) =>
+      `${lineIndex === 0 ? `${index + 1}. ` : ''}${cables.join(',')}`
+    )
+    const title = `${cableLines.join('\n')}${group.suffix ? ` (${group.suffix})` : ''}`
+
+    return {
+      id: `${index}-${group.cables.join('-')}-${group.suffix || group.tasks.join('-')}`,
+      title,
+      cableLines,
+      suffix: group.suffix,
+      tasks: group.tasks,
+    }
+  })
+}
+
+function chunkCableNumbers(cables, size) {
+  const chunks = []
+  for (let index = 0; index < cables.length; index += size) {
+    chunks.push(cables.slice(index, index + size))
+  }
+  return chunks
 }
 
 function formatCableSummaryText(heading, entries) {
@@ -514,7 +547,7 @@ function formatCableSummaryText(heading, entries) {
   return [
     heading,
     ...entries.flatMap((entry) => [
-      entry.title,
+      `${entry.cableLines.join('\n')}${entry.suffix ? ` (${entry.suffix})` : ''}`,
       ...entry.tasks.map((task) => `- ${task}`),
       '',
     ]),
@@ -978,7 +1011,16 @@ function formatCableSummaryText(heading, entries) {
                 :key="entry.id"
                 class="cable-summary-entry"
               >
-                <div class="small" style="color: var(--ink); font-weight: 700">{{ entry.title }}</div>
+                <div class="small cable-summary-title">
+                  <div
+                    v-for="line in entry.cableLines"
+                    :key="line"
+                    class="cable-summary-cable-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
                 <div v-for="task in entry.tasks" :key="task" class="small cable-summary-task">- {{ task }}</div>
               </div>
             </div>
@@ -1011,7 +1053,16 @@ function formatCableSummaryText(heading, entries) {
                 :key="entry.id"
                 class="cable-summary-entry"
               >
-                <div class="small" style="color: var(--ink); font-weight: 700">{{ entry.title }}</div>
+                <div class="small cable-summary-title">
+                  <div
+                    v-for="line in entry.cableLines"
+                    :key="line"
+                    class="cable-summary-cable-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
                 <div v-for="task in entry.tasks" :key="task" class="small cable-summary-task">- {{ task }}</div>
               </div>
             </div>
@@ -1115,6 +1166,15 @@ function formatCableSummaryText(heading, entries) {
 
 .cable-summary-entry:last-child {
   border-bottom: 0;
+}
+
+.cable-summary-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.cable-summary-cable-line + .cable-summary-cable-line {
+  margin-top: 2px;
 }
 
 .cable-summary-task {
