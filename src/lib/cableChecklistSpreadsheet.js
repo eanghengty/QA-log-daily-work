@@ -1,11 +1,11 @@
 import * as XLSX from 'xlsx'
+import { CABLE_CHECKLIST_PROOF_TASKS, normalizeProofTasks } from '../composables/useCableChecklist.js'
 import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
   'LEVEL',
   'Cable label',
   'Cable ID',
-  'HOP Criteria',
   'Sweep test received',
   'Remark',
   'Cable length Est. + 10 %',
@@ -18,10 +18,10 @@ export function CABLE_CHECKLIST_EXPORT_COLS(customColumns = []) {
     { wch: 22 },
     { wch: 34 },
     { wch: 14 },
-    { wch: 58 },
     { wch: 20 },
     { wch: 14 },
     { wch: 22 },
+    ...CABLE_CHECKLIST_PROOF_TASKS.map(() => ({ wch: 32 })),
     ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
     { wch: 52 },
   ]
@@ -50,18 +50,21 @@ export function downloadCableChecklistExport(rows, siteName = 'site', customColu
 export function buildCableChecklistExportRows(rows, customColumns = []) {
   const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
-    ...(rows || []).map((row) => [
-      row.level || '',
-      row.cableLabel || '',
-      row.cableId || '',
-      row.hopCriteria || '',
-      row.sweepTestReceived || '',
-      row.remark || '',
-      row.cableLength || '',
-      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
-      formatChangeHistory(row.changeHistory),
-    ]),
+    [...BASE_EXPORT_HEADERS, ...CABLE_CHECKLIST_PROOF_TASKS.map((task) => task.label), ...normalizedColumns.map((column) => column.label), 'Log'],
+    ...(rows || []).map((row) => {
+      const proofTasks = normalizeProofTasks(row.proofTasks)
+      return [
+        row.level || '',
+        row.cableLabel || '',
+        row.cableId || '',
+        row.sweepTestReceived || '',
+        row.remark || '',
+        row.cableLength || '',
+        ...CABLE_CHECKLIST_PROOF_TASKS.map((task) => formatProofStatus(proofTasks[task.id])),
+        ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
+        formatChangeHistory(row.changeHistory),
+      ]
+    }),
   ]
 }
 
@@ -84,20 +87,22 @@ export async function parseCableChecklistSpreadsheet(file) {
   const levelIndex = headerRow.findIndex((value) => value === 'level')
   const cableLabelIndex = headerRow.findIndex((value) => value === 'cablelabel')
   const cableIdIndex = headerRow.findIndex((value) => value === 'cableid')
-  const hopCriteriaIndex = headerRow.findIndex((value) => value === 'hopcriteria')
   const sweepTestIndex = headerRow.findIndex((value) => value === 'sweeptestreceived')
   const remarkIndex = headerRow.findIndex((value) => value === 'remark')
   const cableLengthIndex = headerRow.findIndex(
     (value) => value === 'cablelengthest10' || value === 'cablelength' || value === 'length'
   )
+  const proofTaskIndexes = Object.fromEntries(
+    CABLE_CHECKLIST_PROOF_TASKS.map((task) => [task.id, headerRow.findIndex((value) => value === normalizeHeader(task.label))])
+  )
   const knownIndexes = new Set([
     levelIndex,
     cableLabelIndex,
     cableIdIndex,
-    hopCriteriaIndex,
     sweepTestIndex,
     remarkIndex,
     cableLengthIndex,
+    ...Object.values(proofTaskIndexes),
     headerRow.findIndex((value) => value === 'log'),
   ])
 
@@ -105,13 +110,12 @@ export async function parseCableChecklistSpreadsheet(file) {
     levelIndex === -1 ||
     cableLabelIndex === -1 ||
     cableIdIndex === -1 ||
-    hopCriteriaIndex === -1 ||
     sweepTestIndex === -1 ||
     remarkIndex === -1 ||
     cableLengthIndex === -1
   ) {
     throw new Error(
-      'The file must contain LEVEL, Cable label, Cable ID, HOP Criteria, Sweep test received, Remark, and Cable length Est. + 10 % columns.'
+      'The file must contain LEVEL, Cable label, Cable ID, Sweep test received, Remark, and Cable length Est. + 10 % columns.'
     )
   }
 
@@ -131,16 +135,18 @@ export async function parseCableChecklistSpreadsheet(file) {
       level: toCellText(row[levelIndex]),
       cableLabel: toCellText(row[cableLabelIndex]),
       cableId: toCellText(row[cableIdIndex]),
-      hopCriteria: toCellText(row[hopCriteriaIndex]),
       sweepTestReceived: toDateCellText(row[sweepTestIndex]),
       remark: toCellText(row[remarkIndex]),
       cableLength: toCellText(row[cableLengthIndex]),
+      proofTasks: Object.fromEntries(
+        CABLE_CHECKLIST_PROOF_TASKS.map((task) => [task.id, normalizeImportProofStatus(row[proofTaskIndexes[task.id]])])
+      ),
       fieldValues: Object.fromEntries(
         customColumns.map((column) => [column.label, toCellText(row[column.index])])
       ),
     }))
     .filter((row) =>
-      [row.level, row.cableLabel, row.cableId, row.hopCriteria, row.sweepTestReceived, row.remark, row.cableLength]
+      [row.level, row.cableLabel, row.cableId, row.sweepTestReceived, row.remark, row.cableLength]
         .some((value) => value)
     )
 
@@ -160,6 +166,15 @@ function normalizeHeader(value) {
 
 function toCellText(value) {
   return String(value ?? '').trim()
+}
+
+function normalizeImportProofStatus(value) {
+  const normalized = normalizeHeader(value)
+  return normalized === 'received' || normalized === 'yes' ? 'received' : 'not-received'
+}
+
+function formatProofStatus(value) {
+  return normalizeImportProofStatus(value) === 'received' ? 'Received' : 'Not received'
 }
 
 function toDateCellText(value) {
@@ -207,6 +222,11 @@ function formatChangeHistory(entries) {
   return entries
     .map((entry) => {
       const changedAt = formatHistoryDate(entry?.changedAt)
+      if (entry?.type === 'proof-task') {
+        const task = CABLE_CHECKLIST_PROOF_TASKS.find((item) => item.id === entry?.taskId)
+        return `${changedAt}: ${task?.label || 'Cable proof'} ${formatProofStatus(entry?.fromStatus)} -> ${formatProofStatus(entry?.toStatus)}`
+      }
+
       const field = formatField(entry?.field)
       const fromValue = String(entry?.fromValue || '').trim() || 'Blank'
       const toValue = String(entry?.toValue || '').trim() || 'Blank'
@@ -218,7 +238,6 @@ function formatChangeHistory(entries) {
 function formatField(value) {
   if (value === 'cableLabel') return 'Cable label'
   if (value === 'cableId') return 'Cable ID'
-  if (value === 'hopCriteria') return 'HOP Criteria'
   if (value === 'sweepTestReceived') return 'Sweep test received'
   if (value === 'cableLength') return 'Cable length Est. + 10 %'
   return String(value || '')

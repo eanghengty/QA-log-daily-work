@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { DCPL_PROOF_TASKS, normalizeProofTasks } from '../composables/useDcplChecklist.js'
 import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
@@ -24,6 +25,7 @@ export function DCPL_CHECKLIST_EXPORT_COLS(customColumns = []) {
     { wch: 22 },
     { wch: 10 },
     { wch: 52 },
+    ...DCPL_PROOF_TASKS.map(() => ({ wch: 32 })),
     ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
     { wch: 52 },
   ]
@@ -52,19 +54,23 @@ export function downloadDcplChecklistExport(rows, siteName = 'site', customColum
 export function buildDcplChecklistExportRows(rows, customColumns = []) {
   const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
-    ...(rows || []).map((row) => [
-      row.level || '',
-      row.description || '',
-      row.make || '',
-      row.model || '',
-      row.label || '',
-      row.serialNumber || '',
-      row.dbValue || '',
-      row.comment || '',
-      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
-      formatChangeHistory(row.changeHistory),
-    ]),
+    [...BASE_EXPORT_HEADERS, ...DCPL_PROOF_TASKS.map((task) => task.label), ...normalizedColumns.map((column) => column.label), 'Log'],
+    ...(rows || []).map((row) => {
+      const proofTasks = normalizeProofTasks(row.proofTasks)
+      return [
+        row.level || '',
+        row.description || '',
+        row.make || '',
+        row.model || '',
+        row.label || '',
+        row.serialNumber || '',
+        row.dbValue || '',
+        row.comment || '',
+        ...DCPL_PROOF_TASKS.map((task) => formatProofStatus(proofTasks[task.id])),
+        ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
+        formatChangeHistory(row.changeHistory),
+      ]
+    }),
   ]
 }
 
@@ -94,6 +100,9 @@ export async function parseDcplChecklistSpreadsheet(file) {
   const commentIndex = headerRow.findIndex(
     (value) => value === 'comment' || value === 'postinstallationphotocheck'
   )
+  const proofTaskIndexes = Object.fromEntries(
+    DCPL_PROOF_TASKS.map((task) => [task.id, headerRow.findIndex((value) => value === normalizeHeader(task.label))])
+  )
   const knownIndexes = new Set([
     levelIndex,
     descriptionIndex,
@@ -103,6 +112,7 @@ export async function parseDcplChecklistSpreadsheet(file) {
     serialNumberIndex,
     dbIndex,
     commentIndex,
+    ...Object.values(proofTaskIndexes),
     headerRow.findIndex((value) => value === 'log'),
   ])
 
@@ -142,6 +152,9 @@ export async function parseDcplChecklistSpreadsheet(file) {
       serialNumber: toCellText(row[serialNumberIndex]),
       dbValue: toCellText(row[dbIndex]),
       comment: toCellText(row[commentIndex]),
+      proofTasks: Object.fromEntries(
+        DCPL_PROOF_TASKS.map((task) => [task.id, normalizeImportProofStatus(row[proofTaskIndexes[task.id]])])
+      ),
       fieldValues: Object.fromEntries(
         customColumns.map((column) => [column.label, toCellText(row[column.index])])
       ),
@@ -169,6 +182,15 @@ function toCellText(value) {
   return String(value ?? '').trim()
 }
 
+function normalizeImportProofStatus(value) {
+  const normalized = normalizeHeader(value)
+  return normalized === 'received' || normalized === 'yes' ? 'received' : 'not-received'
+}
+
+function formatProofStatus(value) {
+  return normalizeImportProofStatus(value) === 'received' ? 'Received' : 'Not received'
+}
+
 function toFileSlug(value) {
   const normalized = String(value || 'site')
     .trim()
@@ -185,6 +207,11 @@ function formatChangeHistory(entries) {
   return entries
     .map((entry) => {
       const changedAt = formatHistoryDate(entry?.changedAt)
+      if (entry?.type === 'proof-task') {
+        const task = DCPL_PROOF_TASKS.find((item) => item.id === entry?.taskId)
+        return `${changedAt}: ${task?.label || 'DCPL proof'} ${formatProofStatus(entry?.fromStatus)} -> ${formatProofStatus(entry?.toStatus)}`
+      }
+
       const field = formatField(entry?.field)
       const fromValue = String(entry?.fromValue || '').trim() || 'Blank'
       const toValue = String(entry?.toValue || '').trim() || 'Blank'

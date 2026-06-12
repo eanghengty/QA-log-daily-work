@@ -2,7 +2,12 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
-import { useDcplChecklist } from '../composables/useDcplChecklist.js'
+import {
+  DCPL_PROOF_STATUS,
+  DCPL_PROOF_TASKS,
+  normalizeProofTasks,
+  useDcplChecklist,
+} from '../composables/useDcplChecklist.js'
 import { useDcplChecklistLayout } from '../composables/useDcplChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { getActivityActorLabel } from '../composables/useActivityActor.js'
@@ -24,7 +29,7 @@ const siteId = route.params.id
 
 const { useSiteById } = useSites()
 const { data: site } = useSiteById(siteId)
-const { rows, summary, addRow, updateRow, deleteRow, reorderRows, importRows, removeCustomColumnValues } = useDcplChecklist(siteId)
+const { rows, summary, addRow, updateRow, deleteRow, reorderRows, setProofTaskStatus, importRows, removeCustomColumnValues } = useDcplChecklist(siteId)
 const { customColumns, addCustomColumn, removeCustomColumn, mergeImportedCustomColumns } = useDcplChecklistLayout(siteId)
 const { logAction } = useActivityLog()
 
@@ -43,6 +48,13 @@ const showAddColumnModal = ref(false)
 const newColumnName = ref('')
 const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
 const addColumnError = ref('')
+const collapsedProofRows = ref(new Set())
+const showDcplSummaryModal = ref(false)
+const areAllProofRowsCollapsed = computed(() => {
+  const currentRows = rows.value || []
+  return currentRows.length > 0 && currentRows.every((row) => collapsedProofRows.value.has(row.id))
+})
+const dcplProofSummary = computed(() => buildDcplProofSummary(rows.value || []))
 
 const title = computed(() => (site.value ? `${site.value.name} DCPL checklist` : 'Site DCPL checklist'))
 const subtitle = computed(() => {
@@ -99,6 +111,7 @@ function createEmptyRow() {
     serialNumber: '',
     dbValue: '',
     comment: '',
+    proofTasks: normalizeProofTasks(),
     fieldValues: {},
   }
 }
@@ -212,6 +225,42 @@ async function saveDraftCustomField(row, column) {
   })
 }
 
+async function handleProofTaskChange(row, task, event) {
+  const status = event.target.checked ? DCPL_PROOF_STATUS.RECEIVED : DCPL_PROOF_STATUS.NOT_RECEIVED
+  await setProofTaskStatus(row.id, task.id, status)
+}
+
+function toggleProofTasks(rowId) {
+  const next = new Set(collapsedProofRows.value)
+  if (next.has(rowId)) {
+    next.delete(rowId)
+  } else {
+    next.add(rowId)
+  }
+  collapsedProofRows.value = next
+}
+
+function toggleAllProofTasks() {
+  const currentRows = rows.value || []
+  collapsedProofRows.value = areAllProofRowsCollapsed.value
+    ? new Set()
+    : new Set(currentRows.map((row) => row.id))
+}
+
+function isProofTasksCollapsed(rowId) {
+  return collapsedProofRows.value.has(rowId)
+}
+
+function getProofTasks(row) {
+  return normalizeProofTasks(row?.proofTasks)
+}
+
+function getProofTaskSummary(row) {
+  const proofTasks = getProofTasks(row)
+  const received = DCPL_PROOF_TASKS.filter((task) => proofTasks[task.id] === DCPL_PROOF_STATUS.RECEIVED).length
+  return `${received}/${DCPL_PROOF_TASKS.length} received`
+}
+
 async function removeRow(row) {
   await deleteRow(row.id)
   const nextDrafts = { ...rowDrafts.value }
@@ -245,7 +294,16 @@ function getFieldLabel(field) {
 }
 
 function getChangeLogLabel(entry) {
+  if (entry?.type === 'proof-task') {
+    const task = DCPL_PROOF_TASKS.find((item) => item.id === entry.taskId)
+    return `${task?.label || 'DCPL proof'}: ${getProofStatusLabel(entry?.fromStatus)} -> ${getProofStatusLabel(entry?.toStatus)}`
+  }
+
   return `${getFieldLabel(entry?.field)}: ${entry?.fromValue || 'Blank'} -> ${entry?.toValue || 'Blank'}`
+}
+
+function getProofStatusLabel(status) {
+  return status === DCPL_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received'
 }
 
 function formatChangeLogDate(value) {
@@ -346,6 +404,32 @@ function openAddColumnModal() {
   showAddColumnModal.value = true
 }
 
+function openDcplSummaryModal() {
+  showDcplSummaryModal.value = true
+}
+
+function closeDcplSummaryModal() {
+  showDcplSummaryModal.value = false
+}
+
+async function copyDcplSummary(type) {
+  const entries = type === 'cleared' ? dcplProofSummary.value.cleared : dcplProofSummary.value.pending
+  const heading = type === 'cleared' ? 'DCPL Checklist cleared summary:' : 'DCPL Checklist pending summary:'
+  const text = formatDcplSummaryText(heading, entries)
+
+  if (!text.trim()) {
+    showStatus(`No ${type} DCPL summary to copy.`, 'issue')
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    showStatus(`${type === 'cleared' ? 'Cleared' : 'Pending'} DCPL summary copied.`)
+  } catch (error) {
+    showStatus('Copy failed. Select the summary text and copy manually.', 'issue')
+  }
+}
+
 function closeAddColumnModal() {
   showAddColumnModal.value = false
   newColumnName.value = ''
@@ -404,6 +488,93 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
     ),
   }))
 }
+
+function buildDcplProofSummary(sourceRows) {
+  const pendingGroups = new Map()
+  const clearedGroups = new Map()
+
+  ;(sourceRows || []).forEach((row) => {
+    const proofTasks = getProofTasks(row)
+    const pendingTasks = DCPL_PROOF_TASKS.filter((task) => proofTasks[task.id] !== DCPL_PROOF_STATUS.RECEIVED)
+    const clearedTasks = DCPL_PROOF_TASKS.filter((task) => proofTasks[task.id] === DCPL_PROOF_STATUS.RECEIVED)
+    const dcplLabel = row.label || row.serialNumber || row.description || `DCPL row ${row.order || row.id || ''}`.trim()
+
+    if (pendingTasks.length === DCPL_PROOF_TASKS.length) {
+      addDcplSummaryGroup(pendingGroups, 'all', dcplLabel, [], 'all not yet received')
+    } else if (pendingTasks.length > 0) {
+      addDcplSummaryGroup(
+        pendingGroups,
+        pendingTasks.map((task) => task.id).join('|'),
+        dcplLabel,
+        pendingTasks.map((task) => task.label)
+      )
+    }
+
+    if (clearedTasks.length === DCPL_PROOF_TASKS.length) {
+      addDcplSummaryGroup(clearedGroups, 'all', dcplLabel, [], 'all received')
+    } else if (clearedTasks.length > 0) {
+      addDcplSummaryGroup(
+        clearedGroups,
+        clearedTasks.map((task) => task.id).join('|'),
+        dcplLabel,
+        clearedTasks.map((task) => task.label)
+      )
+    }
+  })
+
+  return {
+    pending: formatDcplSummaryGroups(pendingGroups),
+    cleared: formatDcplSummaryGroups(clearedGroups),
+  }
+}
+
+function addDcplSummaryGroup(groups, key, dcplLabel, tasks, suffix = '') {
+  if (!groups.has(key)) {
+    groups.set(key, {
+      dcpls: [],
+      tasks,
+      suffix,
+    })
+  }
+
+  groups.get(key).dcpls.push(dcplLabel)
+}
+
+function formatDcplSummaryGroups(groups) {
+  return [...groups.values()].map((group, index) => {
+    const dcplLines = chunkDcplLabels(group.dcpls, 6).map((dcpls, lineIndex) =>
+      `${lineIndex === 0 ? `${index + 1}. ` : ''}${dcpls.join(',')}`
+    )
+
+    return {
+      id: `${index}-${group.dcpls.join('-')}-${group.suffix || group.tasks.join('-')}`,
+      dcplLines,
+      suffix: group.suffix,
+      tasks: group.tasks,
+    }
+  })
+}
+
+function chunkDcplLabels(dcpls, size) {
+  const chunks = []
+  for (let index = 0; index < dcpls.length; index += size) {
+    chunks.push(dcpls.slice(index, index + size))
+  }
+  return chunks
+}
+
+function formatDcplSummaryText(heading, entries) {
+  if (!entries.length) return ''
+
+  return [
+    heading,
+    ...entries.flatMap((entry) => [
+      `${entry.dcplLines.join('\n')}${entry.suffix ? ` (${entry.suffix})` : ''}`,
+      ...entry.tasks.map((task) => `- ${task}`),
+      '',
+    ]),
+  ].join('\n').trim()
+}
 </script>
 
 <template>
@@ -414,6 +585,14 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
       <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
         <MaterialIcon name="view_column" />
         Add column
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="openDcplSummaryModal">
+        <MaterialIcon name="summarize" />
+        DCPL summary
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="toggleAllProofTasks">
+        <MaterialIcon :name="areAllProofRowsCollapsed ? 'unfold_more' : 'unfold_less'" />
+        {{ areAllProofRowsCollapsed ? 'Show subtasks' : 'Hide subtasks' }}
       </button>
       <button type="button" class="btn btn-ghost" @click="handleExport">
         <MaterialIcon name="download_for_offline" />
@@ -450,6 +629,7 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
           <StatCard label="Platform level" :value="summary.platformLevel || 0" accent="var(--confirm)" />
           <StatCard label="Ground level" :value="summary.groundLevel || 0" accent="var(--confirm)" />
           <StatCard label="Serial numbers" :value="`${summary.withSerialNumber || 0}/${summary.total || 0}`" :sub="`${summary.withModel || 0} model`" />
+          <StatCard label="DCPL proof" :value="summary.proofReceived || 0" accent="var(--confirm)" :sub="`${summary.proofTotal || 0} total subtasks`" />
           <div class="box p-4 col gap-3 grow" style="min-width: 320px; flex: 1 1 620px">
             <div class="title-md">Add DCPL row</div>
             <div class="row gap-2" style="flex-wrap: wrap">
@@ -526,18 +706,17 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
             </tr>
           </thead>
           <tbody>
+            <template v-for="row in rows" :key="row.id">
             <tr
-              v-for="row in rows"
-              :key="row.id"
-              :style="{
-                borderTop: '1px dashed var(--line)',
-                opacity: draggedRowId === row.id ? 0.6 : 1,
-                background: dropRowId === row.id && draggedRowId !== row.id ? 'color-mix(in srgb, var(--paper-2) 75%, white)' : '',
-              }"
-              @dragover="onRowDragOver(row.id, $event)"
-              @drop="onRowDrop(row.id, $event)"
-              @dragend="clearRowDragState"
-            >
+                :style="{
+                  borderTop: '1px dashed var(--line)',
+                  opacity: draggedRowId === row.id ? 0.6 : 1,
+                  background: dropRowId === row.id && draggedRowId !== row.id ? 'color-mix(in srgb, var(--paper-2) 75%, white)' : '',
+                }"
+                @dragover="onRowDragOver(row.id, $event)"
+                @drop="onRowDrop(row.id, $event)"
+                @dragend="clearRowDragState"
+              >
               <td class="table-cell">
                 <div class="row gap-2" style="align-items: center">
                   <button type="button" class="chip drag-chip" draggable="true" title="Drag to reorder" @dragstart="startRowDrag(row.id, $event)">
@@ -579,6 +758,13 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
               </td>
               <td class="table-cell">
                 <div class="row gap-2" style="flex-wrap: wrap">
+                  <button type="button" class="chip" @click="toggleProofTasks(row.id)">
+                    <MaterialIcon :name="isProofTasksCollapsed(row.id) ? 'expand_more' : 'expand_less'" :size="14" />
+                    {{ isProofTasksCollapsed(row.id) ? 'Show subtasks' : 'Hide subtasks' }}
+                  </button>
+                  <span class="chip chip-neutral">
+                    {{ getProofTaskSummary(row) }}
+                  </span>
                   <button type="button" class="chip" @click="openChangeLogModal(row)">
                     <MaterialIcon name="history" :size="14" />
                     Log
@@ -590,6 +776,31 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
                 </div>
               </td>
             </tr>
+            <tr v-if="!isProofTasksCollapsed(row.id)" class="proof-task-row">
+              <td class="table-cell" :colspan="9 + customColumns.length">
+                <div class="proof-task-panel">
+                  <label
+                    v-for="task in DCPL_PROOF_TASKS"
+                    :key="task.id"
+                    class="proof-task-item"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="getProofTasks(row)[task.id] === DCPL_PROOF_STATUS.RECEIVED"
+                      @change="handleProofTaskChange(row, task, $event)"
+                    />
+                    <span>{{ task.label }}</span>
+                    <span
+                      class="chip"
+                      :class="getProofTasks(row)[task.id] === DCPL_PROOF_STATUS.RECEIVED ? 'chip-confirm' : 'chip-pending'"
+                    >
+                      {{ getProofTasks(row)[task.id] === DCPL_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received' }}
+                    </span>
+                  </label>
+                </div>
+              </td>
+            </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -673,6 +884,105 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
     </Teleport>
 
     <Teleport to="body">
+      <div v-if="showDcplSummaryModal" class="add-site-overlay" @click.self="closeDcplSummaryModal">
+        <div class="add-site-modal dcpl-summary-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">DCPL checklist summary</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeDcplSummaryModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">DCPL Checklist pending summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ dcplProofSummary.pending.length }} groups</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!dcplProofSummary.pending.length"
+                  @click="copyDcplSummary('pending')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!dcplProofSummary.pending.length" class="box-dash p-4 small">
+              No pending DCPL proof subtasks.
+            </div>
+            <div v-else class="box p-4 col dcpl-summary-list">
+              <div
+                v-for="entry in dcplProofSummary.pending"
+                :key="entry.id"
+                class="dcpl-summary-entry"
+              >
+                <div class="small dcpl-summary-title">
+                  <div
+                    v-for="line in entry.dcplLines"
+                    :key="line"
+                    class="dcpl-summary-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
+                <div v-for="task in entry.tasks" :key="task" class="small dcpl-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-divider" />
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">DCPL Checklist cleared summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ dcplProofSummary.cleared.length }} groups</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!dcplProofSummary.cleared.length"
+                  @click="copyDcplSummary('cleared')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!dcplProofSummary.cleared.length" class="box-dash p-4 small">
+              No cleared DCPL proof subtasks.
+            </div>
+            <div v-else class="box p-4 col dcpl-summary-list">
+              <div
+                v-for="entry in dcplProofSummary.cleared"
+                :key="entry.id"
+                class="dcpl-summary-entry"
+              >
+                <div class="small dcpl-summary-title">
+                  <div
+                    v-for="line in entry.dcplLines"
+                    :key="line"
+                    class="dcpl-summary-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
+                <div v-for="task in entry.tasks" :key="task" class="small dcpl-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-primary" @click="closeDcplSummaryModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
       <div v-if="activeChangeLog" class="add-site-overlay" @click.self="closeChangeLogModal">
         <div class="add-site-modal box col gap-4">
           <div class="between" style="align-items: center">
@@ -744,6 +1054,43 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
   padding: 24px;
 }
 
+.dcpl-summary-modal {
+  max-width: 760px;
+}
+
+.dcpl-summary-list {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.dcpl-summary-entry {
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.dcpl-summary-entry:last-child {
+  border-bottom: 0;
+}
+
+.dcpl-summary-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.dcpl-summary-line + .dcpl-summary-line {
+  margin-top: 2px;
+}
+
+.dcpl-summary-task {
+  margin-top: 6px;
+  padding-left: 16px;
+  color: var(--ink-2);
+}
+
+.summary-divider {
+  border-top: 2px dashed var(--line);
+}
+
 .table-head {
   padding: 14px 12px;
   text-align: left;
@@ -802,5 +1149,36 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 .header-remove {
   padding: 2px 8px;
   font-size: 10px;
+}
+
+.proof-task-row {
+  background: color-mix(in srgb, var(--paper-2) 72%, white);
+}
+
+.proof-task-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.proof-task-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  background: var(--paper);
+}
+
+.proof-task-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--confirm);
+}
+
+.proof-task-item span {
+  min-width: 0;
 }
 </style>

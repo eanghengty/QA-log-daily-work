@@ -2,7 +2,12 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
-import { useCableChecklist } from '../composables/useCableChecklist.js'
+import {
+  CABLE_CHECKLIST_PROOF_STATUS,
+  CABLE_CHECKLIST_PROOF_TASKS,
+  normalizeProofTasks,
+  useCableChecklist,
+} from '../composables/useCableChecklist.js'
 import { useCableChecklistLayout } from '../composables/useCableChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { getActivityActorLabel } from '../composables/useActivityActor.js'
@@ -23,7 +28,7 @@ const siteId = route.params.id
 
 const { useSiteById } = useSites()
 const { data: site } = useSiteById(siteId)
-const { rows, summary, addRow, updateRow, deleteRow, reorderRows, importRows, removeCustomColumnValues } = useCableChecklist(siteId)
+const { rows, summary, addRow, updateRow, deleteRow, reorderRows, setProofTaskStatus, importRows, removeCustomColumnValues } = useCableChecklist(siteId)
 const { customColumns, addCustomColumn, removeCustomColumn, mergeImportedCustomColumns } = useCableChecklistLayout(siteId)
 const { logAction } = useActivityLog()
 
@@ -42,6 +47,13 @@ const showAddColumnModal = ref(false)
 const newColumnName = ref('')
 const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
 const addColumnError = ref('')
+const collapsedProofRows = ref(new Set())
+const showCableSummaryModal = ref(false)
+const areAllProofRowsCollapsed = computed(() => {
+  const currentRows = rows.value || []
+  return currentRows.length > 0 && currentRows.every((row) => collapsedProofRows.value.has(row.id))
+})
+const cableProofSummary = computed(() => buildCableProofSummary(rows.value || []))
 
 const title = computed(() => (site.value ? `${site.value.name} cable checklist` : 'Site cable checklist'))
 const subtitle = computed(() => {
@@ -83,10 +95,10 @@ function createEmptyRow() {
     level: '',
     cableLabel: '',
     cableId: '',
-    hopCriteria: '',
     sweepTestReceived: '',
     remark: '',
     cableLength: '',
+    proofTasks: normalizeProofTasks(),
     fieldValues: {},
   }
 }
@@ -96,7 +108,6 @@ function createRowDraft(row) {
     level: row?.level || '',
     cableLabel: row?.cableLabel || '',
     cableId: row?.cableId || '',
-    hopCriteria: row?.hopCriteria || '',
     sweepTestReceived: normalizeDateInputValue(row?.sweepTestReceived),
     remark: row?.remark || '',
     cableLength: row?.cableLength || '',
@@ -199,6 +210,42 @@ async function saveDraftCustomField(row, column) {
   })
 }
 
+async function handleProofTaskChange(row, task, event) {
+  const status = event.target.checked ? CABLE_CHECKLIST_PROOF_STATUS.RECEIVED : CABLE_CHECKLIST_PROOF_STATUS.NOT_RECEIVED
+  await setProofTaskStatus(row.id, task.id, status)
+}
+
+function toggleProofTasks(rowId) {
+  const next = new Set(collapsedProofRows.value)
+  if (next.has(rowId)) {
+    next.delete(rowId)
+  } else {
+    next.add(rowId)
+  }
+  collapsedProofRows.value = next
+}
+
+function toggleAllProofTasks() {
+  const currentRows = rows.value || []
+  collapsedProofRows.value = areAllProofRowsCollapsed.value
+    ? new Set()
+    : new Set(currentRows.map((row) => row.id))
+}
+
+function isProofTasksCollapsed(rowId) {
+  return collapsedProofRows.value.has(rowId)
+}
+
+function getProofTasks(row) {
+  return normalizeProofTasks(row?.proofTasks)
+}
+
+function getProofTaskSummary(row) {
+  const proofTasks = getProofTasks(row)
+  const received = CABLE_CHECKLIST_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED).length
+  return `${received}/${CABLE_CHECKLIST_PROOF_TASKS.length} received`
+}
+
 async function removeRow(row) {
   await deleteRow(row.id)
   const nextDrafts = { ...rowDrafts.value }
@@ -227,14 +274,22 @@ function getChangeHistory(row) {
 function getFieldLabel(field) {
   if (field === 'cableLabel') return 'Cable label'
   if (field === 'cableId') return 'Cable ID'
-  if (field === 'hopCriteria') return 'HOP Criteria'
   if (field === 'sweepTestReceived') return 'Sweep test received'
   if (field === 'cableLength') return 'Cable length Est. + 10 %'
   return String(field || '').replace(/([A-Z])/g, ' $1').replace(/^./, (char) => char.toUpperCase()).trim()
 }
 
 function getChangeLogLabel(entry) {
+  if (entry?.type === 'proof-task') {
+    const task = CABLE_CHECKLIST_PROOF_TASKS.find((item) => item.id === entry.taskId)
+    return `${task?.label || 'Cable proof'}: ${getProofStatusLabel(entry?.fromStatus)} -> ${getProofStatusLabel(entry?.toStatus)}`
+  }
+
   return `${getFieldLabel(entry?.field)}: ${entry?.fromValue || 'Blank'} -> ${entry?.toValue || 'Blank'}`
+}
+
+function getProofStatusLabel(status) {
+  return status === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received'
 }
 
 function formatChangeLogDate(value) {
@@ -367,6 +422,32 @@ function openAddColumnModal() {
   showAddColumnModal.value = true
 }
 
+function openCableSummaryModal() {
+  showCableSummaryModal.value = true
+}
+
+function closeCableSummaryModal() {
+  showCableSummaryModal.value = false
+}
+
+async function copyCableSummary(type) {
+  const entries = type === 'cleared' ? cableProofSummary.value.cleared : cableProofSummary.value.pending
+  const heading = type === 'cleared' ? 'Cable Checklist cleared summary:' : 'Cable Checklist pending summary:'
+  const text = formatCableSummaryText(heading, entries)
+
+  if (!text.trim()) {
+    showStatus(`No ${type} cable checklist summary to copy.`, 'issue')
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    showStatus(`${type === 'cleared' ? 'Cleared' : 'Pending'} cable checklist summary copied.`)
+  } catch (error) {
+    showStatus('Copy failed. Select the summary text and copy manually.', 'issue')
+  }
+}
+
 function closeAddColumnModal() {
   showAddColumnModal.value = false
   newColumnName.value = ''
@@ -425,6 +506,93 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
     ),
   }))
 }
+
+function buildCableProofSummary(sourceRows) {
+  const pendingGroups = new Map()
+  const clearedGroups = new Map()
+
+  ;(sourceRows || []).forEach((row) => {
+    const proofTasks = getProofTasks(row)
+    const pendingTasks = CABLE_CHECKLIST_PROOF_TASKS.filter((task) => proofTasks[task.id] !== CABLE_CHECKLIST_PROOF_STATUS.RECEIVED)
+    const clearedTasks = CABLE_CHECKLIST_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED)
+    const cableLabel = row.cableLabel || row.cableId || `Cable row ${row.order || row.id || ''}`.trim()
+
+    if (pendingTasks.length === CABLE_CHECKLIST_PROOF_TASKS.length) {
+      addCableSummaryGroup(pendingGroups, 'all', cableLabel, [], 'all not yet received')
+    } else if (pendingTasks.length > 0) {
+      addCableSummaryGroup(
+        pendingGroups,
+        pendingTasks.map((task) => task.id).join('|'),
+        cableLabel,
+        pendingTasks.map((task) => task.label)
+      )
+    }
+
+    if (clearedTasks.length === CABLE_CHECKLIST_PROOF_TASKS.length) {
+      addCableSummaryGroup(clearedGroups, 'all', cableLabel, [], 'all received')
+    } else if (clearedTasks.length > 0) {
+      addCableSummaryGroup(
+        clearedGroups,
+        clearedTasks.map((task) => task.id).join('|'),
+        cableLabel,
+        clearedTasks.map((task) => task.label)
+      )
+    }
+  })
+
+  return {
+    pending: formatCableSummaryGroups(pendingGroups),
+    cleared: formatCableSummaryGroups(clearedGroups),
+  }
+}
+
+function addCableSummaryGroup(groups, key, cableLabel, tasks, suffix = '') {
+  if (!groups.has(key)) {
+    groups.set(key, {
+      cables: [],
+      tasks,
+      suffix,
+    })
+  }
+
+  groups.get(key).cables.push(cableLabel)
+}
+
+function formatCableSummaryGroups(groups) {
+  return [...groups.values()].map((group, index) => {
+    const cableLines = chunkCableLabels(group.cables, 6).map((cables, lineIndex) =>
+      `${lineIndex === 0 ? `${index + 1}. ` : ''}${cables.join(',')}`
+    )
+
+    return {
+      id: `${index}-${group.cables.join('-')}-${group.suffix || group.tasks.join('-')}`,
+      cableLines,
+      suffix: group.suffix,
+      tasks: group.tasks,
+    }
+  })
+}
+
+function chunkCableLabels(cables, size) {
+  const chunks = []
+  for (let index = 0; index < cables.length; index += size) {
+    chunks.push(cables.slice(index, index + size))
+  }
+  return chunks
+}
+
+function formatCableSummaryText(heading, entries) {
+  if (!entries.length) return ''
+
+  return [
+    heading,
+    ...entries.flatMap((entry) => [
+      `${entry.cableLines.join('\n')}${entry.suffix ? ` (${entry.suffix})` : ''}`,
+      ...entry.tasks.map((task) => `- ${task}`),
+      '',
+    ]),
+  ].join('\n').trim()
+}
 </script>
 
 <template>
@@ -435,6 +603,14 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
       <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
         <MaterialIcon name="view_column" />
         Add column
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="openCableSummaryModal">
+        <MaterialIcon name="summarize" />
+        Cable summary
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="toggleAllProofTasks">
+        <MaterialIcon :name="areAllProofRowsCollapsed ? 'unfold_more' : 'unfold_less'" />
+        {{ areAllProofRowsCollapsed ? 'Show subtasks' : 'Hide subtasks' }}
       </button>
       <button type="button" class="btn btn-ghost" @click="handleExport">
         <MaterialIcon name="download_for_offline" />
@@ -471,13 +647,13 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
           <StatCard label="Platform level" :value="summary.platformLevel || 0" accent="var(--confirm)" />
           <StatCard label="Ground level" :value="summary.groundLevel || 0" accent="var(--confirm)" />
           <StatCard label="Length total" :value="formatLength(summary.totalLength || 0)" :sub="`${summary.withSweepTest || 0} sweep test`" />
+          <StatCard label="Cable proof" :value="summary.proofReceived || 0" accent="var(--confirm)" :sub="`${summary.proofTotal || 0} total subtasks`" />
           <div class="box p-4 col gap-3 grow" style="min-width: 320px; flex: 1 1 720px">
             <div class="title-md">Add cable checklist row</div>
             <div class="row gap-2" style="flex-wrap: wrap">
               <input v-model="newRow.level" class="field" type="text" placeholder="LEVEL" style="flex: 1 1 160px" />
               <input v-model="newRow.cableLabel" class="field" type="text" placeholder="Cable label" style="flex: 2 1 300px" />
               <input v-model="newRow.cableId" class="field" type="text" placeholder="Cable ID" style="flex: 1 1 140px" />
-              <input v-model="newRow.hopCriteria" class="field" type="text" placeholder="HOP Criteria" style="flex: 2 1 360px" />
               <input v-model="newRow.sweepTestReceived" class="field" type="date" style="flex: 1 1 180px" />
               <input v-model="newRow.remark" class="field" type="text" placeholder="Remark" style="flex: 1 1 140px" />
               <input v-model="newRow.cableLength" class="field" type="text" placeholder="Cable length Est. + 10 %" style="flex: 1 1 180px" />
@@ -528,7 +704,6 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
               <th class="table-head">LEVEL</th>
               <th class="table-head">Cable label</th>
               <th class="table-head">Cable ID</th>
-              <th class="table-head">HOP Criteria</th>
               <th class="table-head">Sweep test received</th>
               <th class="table-head">Remark</th>
               <th class="table-head">Cable length Est. + 10 %</th>
@@ -545,18 +720,17 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
             </tr>
           </thead>
           <tbody>
+            <template v-for="row in rows" :key="row.id">
             <tr
-              v-for="row in rows"
-              :key="row.id"
-              :style="{
-                borderTop: '1px dashed var(--line)',
-                opacity: draggedRowId === row.id ? 0.6 : 1,
-                background: dropRowId === row.id && draggedRowId !== row.id ? 'color-mix(in srgb, var(--paper-2) 75%, white)' : '',
-              }"
-              @dragover="onRowDragOver(row.id, $event)"
-              @drop="onRowDrop(row.id, $event)"
-              @dragend="clearRowDragState"
-            >
+                :style="{
+                  borderTop: '1px dashed var(--line)',
+                  opacity: draggedRowId === row.id ? 0.6 : 1,
+                  background: dropRowId === row.id && draggedRowId !== row.id ? 'color-mix(in srgb, var(--paper-2) 75%, white)' : '',
+                }"
+                @dragover="onRowDragOver(row.id, $event)"
+                @drop="onRowDrop(row.id, $event)"
+                @dragend="clearRowDragState"
+              >
               <td class="table-cell">
                 <div class="row gap-2" style="align-items: center">
                   <button type="button" class="chip drag-chip" draggable="true" title="Drag to reorder" @dragstart="startRowDrag(row.id, $event)">
@@ -568,7 +742,6 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
               </td>
               <td class="table-cell"><input class="field cable-label-field" type="text" v-model="getRowDraft(row).cableLabel" @blur="saveDraftField(row, 'cableLabel')" /></td>
               <td class="table-cell"><input class="field cable-id-field" type="text" v-model="getRowDraft(row).cableId" @blur="saveDraftField(row, 'cableId')" /></td>
-              <td class="table-cell"><textarea class="field hop-field" rows="3" v-model="getRowDraft(row).hopCriteria" @blur="saveDraftField(row, 'hopCriteria')" /></td>
               <td class="table-cell"><input class="field sweep-field" type="date" v-model="getRowDraft(row).sweepTestReceived" @blur="saveDraftField(row, 'sweepTestReceived')" /></td>
               <td class="table-cell"><input class="field remark-field" type="text" v-model="getRowDraft(row).remark" @blur="saveDraftField(row, 'remark')" /></td>
               <td class="table-cell"><input class="field length-field" type="text" v-model="getRowDraft(row).cableLength" @blur="saveDraftField(row, 'cableLength')" /></td>
@@ -597,6 +770,13 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
               </td>
               <td class="table-cell">
                 <div class="row gap-2" style="flex-wrap: wrap">
+                  <button type="button" class="chip" @click="toggleProofTasks(row.id)">
+                    <MaterialIcon :name="isProofTasksCollapsed(row.id) ? 'expand_more' : 'expand_less'" :size="14" />
+                    {{ isProofTasksCollapsed(row.id) ? 'Show subtasks' : 'Hide subtasks' }}
+                  </button>
+                  <span class="chip chip-neutral">
+                    {{ getProofTaskSummary(row) }}
+                  </span>
                   <button type="button" class="chip" @click="openChangeLogModal(row)">
                     <MaterialIcon name="history" :size="14" />
                     Log
@@ -608,6 +788,31 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
                 </div>
               </td>
             </tr>
+            <tr v-if="!isProofTasksCollapsed(row.id)" class="proof-task-row">
+              <td class="table-cell" :colspan="7 + customColumns.length">
+                <div class="proof-task-panel">
+                  <label
+                    v-for="task in CABLE_CHECKLIST_PROOF_TASKS"
+                    :key="task.id"
+                    class="proof-task-item"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="getProofTasks(row)[task.id] === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED"
+                      @change="handleProofTaskChange(row, task, $event)"
+                    />
+                    <span>{{ task.label }}</span>
+                    <span
+                      class="chip"
+                      :class="getProofTasks(row)[task.id] === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED ? 'chip-confirm' : 'chip-pending'"
+                    >
+                      {{ getProofTasks(row)[task.id] === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received' }}
+                    </span>
+                  </label>
+                </div>
+              </td>
+            </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -691,6 +896,105 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
     </Teleport>
 
     <Teleport to="body">
+      <div v-if="showCableSummaryModal" class="add-site-overlay" @click.self="closeCableSummaryModal">
+        <div class="add-site-modal cable-summary-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Cable checklist summary</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeCableSummaryModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Cable Checklist pending summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ cableProofSummary.pending.length }} groups</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!cableProofSummary.pending.length"
+                  @click="copyCableSummary('pending')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!cableProofSummary.pending.length" class="box-dash p-4 small">
+              No pending cable proof subtasks.
+            </div>
+            <div v-else class="box p-4 col cable-summary-list">
+              <div
+                v-for="entry in cableProofSummary.pending"
+                :key="entry.id"
+                class="cable-summary-entry"
+              >
+                <div class="small cable-summary-title">
+                  <div
+                    v-for="line in entry.cableLines"
+                    :key="line"
+                    class="cable-summary-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
+                <div v-for="task in entry.tasks" :key="task" class="small cable-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-divider" />
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Cable Checklist cleared summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ cableProofSummary.cleared.length }} groups</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!cableProofSummary.cleared.length"
+                  @click="copyCableSummary('cleared')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!cableProofSummary.cleared.length" class="box-dash p-4 small">
+              No cleared cable proof subtasks.
+            </div>
+            <div v-else class="box p-4 col cable-summary-list">
+              <div
+                v-for="entry in cableProofSummary.cleared"
+                :key="entry.id"
+                class="cable-summary-entry"
+              >
+                <div class="small cable-summary-title">
+                  <div
+                    v-for="line in entry.cableLines"
+                    :key="line"
+                    class="cable-summary-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
+                <div v-for="task in entry.tasks" :key="task" class="small cable-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-primary" @click="closeCableSummaryModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
       <div v-if="activeChangeLog" class="add-site-overlay" @click.self="closeChangeLogModal">
         <div class="add-site-modal box col gap-4">
           <div class="between" style="align-items: center">
@@ -757,6 +1061,43 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
   padding: 24px;
 }
 
+.cable-summary-modal {
+  max-width: 760px;
+}
+
+.cable-summary-list {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.cable-summary-entry {
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.cable-summary-entry:last-child {
+  border-bottom: 0;
+}
+
+.cable-summary-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.cable-summary-line + .cable-summary-line {
+  margin-top: 2px;
+}
+
+.cable-summary-task {
+  margin-top: 6px;
+  padding-left: 16px;
+  color: var(--ink-2);
+}
+
+.summary-divider {
+  border-top: 2px dashed var(--line);
+}
+
 .table-head {
   padding: 14px 12px;
   text-align: left;
@@ -780,11 +1121,6 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 
 .cable-label-field {
   min-width: 260px;
-}
-
-.hop-field {
-  min-width: 360px;
-  resize: vertical;
 }
 
 .sweep-field {
@@ -811,5 +1147,36 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 .header-remove {
   padding: 2px 8px;
   font-size: 10px;
+}
+
+.proof-task-row {
+  background: color-mix(in srgb, var(--paper-2) 72%, white);
+}
+
+.proof-task-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.proof-task-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  background: var(--paper);
+}
+
+.proof-task-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--confirm);
+}
+
+.proof-task-item span {
+  min-width: 0;
 }
 </style>

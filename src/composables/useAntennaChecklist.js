@@ -11,6 +11,27 @@ import { useLiveQuery } from './useLiveQuery.js'
 import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 import { getCurrentActivityActor } from './useActivityActor.js'
 
+export const ANTENNA_PROOF_STATUS = {
+  NOT_RECEIVED: 'not-received',
+  RECEIVED: 'received',
+}
+
+export const ANTENNA_PROOF_TASKS = [
+  { id: 'preInstallLocation', label: 'Pre installation location of antenna' },
+  { id: 'overviewAfterCableInstall', label: 'Overview of antenna from distance after cable installation' },
+  { id: 'closeUpWithLabel', label: 'Close up view of antenna with label' },
+  { id: 'merc9SignPhoto', label: 'MERC-9 sign photo, install approximately 100mm from ANT' },
+  {
+    id: 'antennaCableLabelConnection',
+    label: 'Label of cable connect to antenna(Show connection Pigtail + Coax, visible coax label)',
+  },
+  { id: 'serialNumberPhoto', label: 'Serial number photos of antenna' },
+  { id: 'accessHatch', label: 'Access hatch for antenna if applicable.' },
+  { id: 'antennaHeightPhoto', label: 'Antenna height photos using non-metallic measurement tool.' },
+  { id: 'mountingLevelDaiPhoto', label: 'Leveling of mounting and DAI antenna photos.' },
+  { id: 'daiAzimuthPhoto', label: 'Azimute of DAI antenna photo' },
+]
+
 export function useAntennaChecklist(siteId) {
   setupCloudBoardMirror(siteId)
 
@@ -29,6 +50,7 @@ export function useAntennaChecklist(siteId) {
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
+      proofTasks: normalizeProofTasks(row.proofTasks),
       fieldValues: normalizeFieldValues(row.fieldValues),
       changeHistory: [],
       createdAt: new Date().toISOString(),
@@ -98,6 +120,30 @@ export function useAntennaChecklist(siteId) {
     await persistCloudBoard(siteId, 'antenna-checklist-rows-reordered')
   }
 
+  async function setProofTaskStatus(id, taskId, status) {
+    const row = await db.antennaChecklists.get(localRecordKey(id))
+    if (!row || !ANTENNA_PROOF_TASKS.some((task) => task.id === taskId)) return
+
+    const proofTasks = normalizeProofTasks(row.proofTasks)
+    const nextStatus = normalizeProofStatus(status)
+    const previousStatus = proofTasks[taskId]
+    if (previousStatus === nextStatus) return
+
+    const result = await db.antennaChecklists.update(localRecordKey(id), {
+      proofTasks: {
+        ...proofTasks,
+        [taskId]: nextStatus,
+      },
+      changeHistory: [
+        ...(Array.isArray(row.changeHistory) ? row.changeHistory : []),
+        createProofTaskHistoryEntry(taskId, previousStatus, nextStatus),
+      ],
+      updatedAt: new Date().toISOString(),
+    })
+    await persistCloudBoard(siteId, 'antenna-checklist-row-updated')
+    return result
+  }
+
   async function importRows(importedRows) {
     const summary = {
       addedRows: 0,
@@ -120,6 +166,10 @@ export function useAntennaChecklist(siteId) {
           const nextValues = {
             ...existing,
             ...normalizedRow,
+            proofTasks: {
+              ...normalizeProofTasks(existing.proofTasks),
+              ...normalizeProofTasks(sourceRow.proofTasks),
+            },
             fieldValues: {
               ...(existing.fieldValues || {}),
               ...(normalizedRow.fieldValues || {}),
@@ -137,6 +187,7 @@ export function useAntennaChecklist(siteId) {
           siteId,
           order: nextOrder,
           ...normalizedRow,
+          proofTasks: normalizeProofTasks(sourceRow.proofTasks),
           changeHistory: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -181,6 +232,7 @@ export function useAntennaChecklist(siteId) {
     updateRow,
     deleteRow,
     reorderRows,
+    setProofTaskStatus,
     importRows,
     removeCustomColumnValues,
   }
@@ -210,6 +262,11 @@ export function summarizeAntennaChecklist(rows) {
   const withSerialNumber = rows.filter((row) => String(row.serialNumber || '').trim()).length
   const withModel = rows.filter((row) => String(row.model || '').trim()).length
   const otherLevels = total - platformLevel - groundLevel
+  const proofReceived = rows.reduce((totalCount, row) => {
+    const proofTasks = normalizeProofTasks(row.proofTasks)
+    return totalCount + ANTENNA_PROOF_TASKS.filter((task) => proofTasks[task.id] === ANTENNA_PROOF_STATUS.RECEIVED).length
+  }, 0)
+  const proofTotal = total * ANTENNA_PROOF_TASKS.length
 
   return {
     total,
@@ -218,6 +275,8 @@ export function summarizeAntennaChecklist(rows) {
     otherLevels,
     withSerialNumber,
     withModel,
+    proofReceived,
+    proofTotal,
   }
 }
 
@@ -232,6 +291,7 @@ function normalizeRowValues(row) {
     serialNumber: String(row.serialNumber || '').trim(),
     assetTag: String(row.assetTag || '').trim(),
     comment: String(row.comment || '').trim(),
+    proofTasks: normalizeProofTasks(row.proofTasks),
     fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
@@ -246,9 +306,23 @@ function normalizeRowUpdates(updates) {
   if ('serialNumber' in next) next.serialNumber = String(next.serialNumber || '').trim()
   if ('assetTag' in next) next.assetTag = String(next.assetTag || '').trim()
   if ('comment' in next) next.comment = String(next.comment || '').trim()
+  if ('proofTasks' in next) next.proofTasks = normalizeProofTasks(next.proofTasks)
   if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+export function normalizeProofTasks(value) {
+  return Object.fromEntries(
+    ANTENNA_PROOF_TASKS.map((task) => [task.id, normalizeProofStatus(value?.[task.id])])
+  )
+}
+
+export function normalizeProofStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === ANTENNA_PROOF_STATUS.RECEIVED || normalized === 'received' || normalized === 'yes'
+    ? ANTENNA_PROOF_STATUS.RECEIVED
+    : ANTENNA_PROOF_STATUS.NOT_RECEIVED
 }
 
 function normalizeFieldValues(value) {
@@ -283,6 +357,18 @@ function createFieldHistoryEntry(field, fromValue, toValue) {
     field,
     fromValue: String(fromValue || '').trim(),
     toValue: String(toValue || '').trim(),
+    ...getCurrentActivityActor(),
+    changedAt: new Date().toISOString(),
+  }
+}
+
+function createProofTaskHistoryEntry(taskId, fromStatus, toStatus) {
+  return {
+    id: createLocalId(),
+    type: 'proof-task',
+    taskId,
+    fromStatus: normalizeProofStatus(fromStatus),
+    toStatus: normalizeProofStatus(toStatus),
     ...getCurrentActivityActor(),
     changedAt: new Date().toISOString(),
   }

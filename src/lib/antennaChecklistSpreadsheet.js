@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { ANTENNA_PROOF_TASKS, normalizeProofTasks } from '../composables/useAntennaChecklist.js'
 import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
@@ -22,6 +23,7 @@ export function ANTENNA_CHECKLIST_EXPORT_COLS(customColumns = []) {
     { wch: 22 },
     { wch: 22 },
     { wch: 48 },
+    ...ANTENNA_PROOF_TASKS.map(() => ({ wch: 32 })),
     ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
     { wch: 52 },
   ]
@@ -50,18 +52,22 @@ export function downloadAntennaChecklistExport(rows, siteName = 'site', customCo
 export function buildAntennaChecklistExportRows(rows, customColumns = []) {
   const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
-    ...(rows || []).map((row) => [
-      row.level || '',
-      row.description || '',
-      row.make || '',
-      row.model || '',
-      row.serialNumber || '',
-      row.assetTag || '',
-      row.comment || '',
-      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
-      formatChangeHistory(row.changeHistory),
-    ]),
+    [...BASE_EXPORT_HEADERS, ...ANTENNA_PROOF_TASKS.map((task) => task.label), ...normalizedColumns.map((column) => column.label), 'Log'],
+    ...(rows || []).map((row) => {
+      const proofTasks = normalizeProofTasks(row.proofTasks)
+      return [
+        row.level || '',
+        row.description || '',
+        row.make || '',
+        row.model || '',
+        row.serialNumber || '',
+        row.assetTag || '',
+        row.comment || '',
+        ...ANTENNA_PROOF_TASKS.map((task) => formatProofStatus(proofTasks[task.id])),
+        ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
+        formatChangeHistory(row.changeHistory),
+      ]
+    }),
   ]
 }
 
@@ -98,6 +104,9 @@ export async function parseAntennaChecklistSpreadsheet(file) {
     (value) => value === 'assettaglabel' || value === 'assettag' || value === 'label'
   )
   const commentIndex = headerRow.findIndex((value) => value === 'comment')
+  const proofTaskIndexes = Object.fromEntries(
+    ANTENNA_PROOF_TASKS.map((task) => [task.id, headerRow.findIndex((value) => value === normalizeHeader(task.label))])
+  )
   const knownIndexes = new Set([
     levelIndex,
     descriptionIndex,
@@ -106,6 +115,7 @@ export async function parseAntennaChecklistSpreadsheet(file) {
     serialNumberIndex,
     assetTagIndex,
     commentIndex,
+    ...Object.values(proofTaskIndexes),
     headerRow.findIndex((value) => value === 'log'),
   ])
 
@@ -143,6 +153,9 @@ export async function parseAntennaChecklistSpreadsheet(file) {
       serialNumber: toCellText(row[serialNumberIndex]),
       assetTag: toCellText(row[assetTagIndex]),
       comment: toCellText(row[commentIndex]),
+      proofTasks: Object.fromEntries(
+        ANTENNA_PROOF_TASKS.map((task) => [task.id, normalizeImportProofStatus(row[proofTaskIndexes[task.id]])])
+      ),
       fieldValues: Object.fromEntries(
         customColumns.map((column) => [column.label, toCellText(row[column.index])])
       ),
@@ -172,6 +185,15 @@ function toCellText(value) {
   return String(value ?? '').trim()
 }
 
+function normalizeImportProofStatus(value) {
+  const normalized = normalizeHeader(value)
+  return normalized === 'received' || normalized === 'yes' ? 'received' : 'not-received'
+}
+
+function formatProofStatus(value) {
+  return normalizeImportProofStatus(value) === 'received' ? 'Received' : 'Not received'
+}
+
 function toFileSlug(value) {
   const normalized = String(value || 'site')
     .trim()
@@ -188,6 +210,11 @@ function formatChangeHistory(entries) {
   return entries
     .map((entry) => {
       const changedAt = formatHistoryDate(entry?.changedAt)
+      if (entry?.type === 'proof-task') {
+        const task = ANTENNA_PROOF_TASKS.find((item) => item.id === entry?.taskId)
+        return `${changedAt}: ${task?.label || 'Antenna proof'} ${formatProofStatus(entry?.fromStatus)} -> ${formatProofStatus(entry?.toStatus)}`
+      }
+
       const field = formatField(entry?.field)
       const fromValue = String(entry?.fromValue || '').trim() || 'Blank'
       const toValue = String(entry?.toValue || '').trim() || 'Blank'

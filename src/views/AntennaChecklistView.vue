@@ -2,7 +2,12 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
-import { useAntennaChecklist } from '../composables/useAntennaChecklist.js'
+import {
+  ANTENNA_PROOF_STATUS,
+  ANTENNA_PROOF_TASKS,
+  normalizeProofTasks,
+  useAntennaChecklist,
+} from '../composables/useAntennaChecklist.js'
 import { useAntennaChecklistLayout } from '../composables/useAntennaChecklistLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { getActivityActorLabel } from '../composables/useActivityActor.js'
@@ -24,7 +29,7 @@ const siteId = route.params.id
 
 const { useSiteById } = useSites()
 const { data: site } = useSiteById(siteId)
-const { rows, summary, addRow, updateRow, deleteRow, reorderRows, importRows, removeCustomColumnValues } = useAntennaChecklist(siteId)
+const { rows, summary, addRow, updateRow, deleteRow, reorderRows, setProofTaskStatus, importRows, removeCustomColumnValues } = useAntennaChecklist(siteId)
 const { customColumns, addCustomColumn, removeCustomColumn, mergeImportedCustomColumns } = useAntennaChecklistLayout(siteId)
 const { logAction } = useActivityLog()
 
@@ -43,6 +48,13 @@ const showAddColumnModal = ref(false)
 const newColumnName = ref('')
 const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
 const addColumnError = ref('')
+const collapsedProofRows = ref(new Set())
+const showAntennaSummaryModal = ref(false)
+const areAllProofRowsCollapsed = computed(() => {
+  const currentRows = rows.value || []
+  return currentRows.length > 0 && currentRows.every((row) => collapsedProofRows.value.has(row.id))
+})
+const antennaProofSummary = computed(() => buildAntennaProofSummary(rows.value || []))
 
 const title = computed(() => (site.value ? `${site.value.name} antenna checklist` : 'Site antenna checklist'))
 const subtitle = computed(() => {
@@ -102,6 +114,7 @@ function createEmptyRow() {
     serialNumber: '',
     assetTag: '',
     comment: '',
+    proofTasks: normalizeProofTasks(),
     fieldValues: {},
   }
 }
@@ -224,6 +237,42 @@ async function saveDraftCustomField(row, column) {
   })
 }
 
+async function handleProofTaskChange(row, task, event) {
+  const status = event.target.checked ? ANTENNA_PROOF_STATUS.RECEIVED : ANTENNA_PROOF_STATUS.NOT_RECEIVED
+  await setProofTaskStatus(row.id, task.id, status)
+}
+
+function toggleProofTasks(rowId) {
+  const next = new Set(collapsedProofRows.value)
+  if (next.has(rowId)) {
+    next.delete(rowId)
+  } else {
+    next.add(rowId)
+  }
+  collapsedProofRows.value = next
+}
+
+function toggleAllProofTasks() {
+  const currentRows = rows.value || []
+  collapsedProofRows.value = areAllProofRowsCollapsed.value
+    ? new Set()
+    : new Set(currentRows.map((row) => row.id))
+}
+
+function isProofTasksCollapsed(rowId) {
+  return collapsedProofRows.value.has(rowId)
+}
+
+function getProofTasks(row) {
+  return normalizeProofTasks(row?.proofTasks)
+}
+
+function getProofTaskSummary(row) {
+  const proofTasks = getProofTasks(row)
+  const received = ANTENNA_PROOF_TASKS.filter((task) => proofTasks[task.id] === ANTENNA_PROOF_STATUS.RECEIVED).length
+  return `${received}/${ANTENNA_PROOF_TASKS.length} received`
+}
+
 async function removeRow(row) {
   await deleteRow(row.id)
   const nextDrafts = { ...rowDrafts.value }
@@ -261,7 +310,16 @@ function getFieldLabel(field) {
 }
 
 function getChangeLogLabel(entry) {
+  if (entry?.type === 'proof-task') {
+    const task = ANTENNA_PROOF_TASKS.find((item) => item.id === entry.taskId)
+    return `${task?.label || 'Antenna proof'}: ${getProofStatusLabel(entry?.fromStatus)} -> ${getProofStatusLabel(entry?.toStatus)}`
+  }
+
   return `${getFieldLabel(entry?.field)}: ${entry?.fromValue || 'Blank'} -> ${entry?.toValue || 'Blank'}`
+}
+
+function getProofStatusLabel(status) {
+  return status === ANTENNA_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received'
 }
 
 function formatChangeLogDate(value) {
@@ -367,6 +425,32 @@ function openAddColumnModal() {
   showAddColumnModal.value = true
 }
 
+function openAntennaSummaryModal() {
+  showAntennaSummaryModal.value = true
+}
+
+function closeAntennaSummaryModal() {
+  showAntennaSummaryModal.value = false
+}
+
+async function copyAntennaSummary(type) {
+  const entries = type === 'cleared' ? antennaProofSummary.value.cleared : antennaProofSummary.value.pending
+  const heading = type === 'cleared' ? 'Antenna Checklist cleared summary:' : 'Antenna Checklist pending summary:'
+  const text = formatAntennaSummaryText(heading, entries)
+
+  if (!text.trim()) {
+    showStatus(`No ${type} antenna summary to copy.`, 'issue')
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    showStatus(`${type === 'cleared' ? 'Cleared' : 'Pending'} antenna summary copied.`)
+  } catch (error) {
+    showStatus('Copy failed. Select the summary text and copy manually.', 'issue')
+  }
+}
+
 function closeAddColumnModal() {
   showAddColumnModal.value = false
   newColumnName.value = ''
@@ -425,6 +509,93 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
     ),
   }))
 }
+
+function buildAntennaProofSummary(sourceRows) {
+  const pendingGroups = new Map()
+  const clearedGroups = new Map()
+
+  ;(sourceRows || []).forEach((row) => {
+    const proofTasks = getProofTasks(row)
+    const pendingTasks = ANTENNA_PROOF_TASKS.filter((task) => proofTasks[task.id] !== ANTENNA_PROOF_STATUS.RECEIVED)
+    const clearedTasks = ANTENNA_PROOF_TASKS.filter((task) => proofTasks[task.id] === ANTENNA_PROOF_STATUS.RECEIVED)
+    const antennaLabel = row.assetTag || row.serialNumber || row.description || `Antenna row ${row.order || row.id || ''}`.trim()
+
+    if (pendingTasks.length === ANTENNA_PROOF_TASKS.length) {
+      addAntennaSummaryGroup(pendingGroups, 'all', antennaLabel, [], 'all not yet received')
+    } else if (pendingTasks.length > 0) {
+      addAntennaSummaryGroup(
+        pendingGroups,
+        pendingTasks.map((task) => task.id).join('|'),
+        antennaLabel,
+        pendingTasks.map((task) => task.label)
+      )
+    }
+
+    if (clearedTasks.length === ANTENNA_PROOF_TASKS.length) {
+      addAntennaSummaryGroup(clearedGroups, 'all', antennaLabel, [], 'all received')
+    } else if (clearedTasks.length > 0) {
+      addAntennaSummaryGroup(
+        clearedGroups,
+        clearedTasks.map((task) => task.id).join('|'),
+        antennaLabel,
+        clearedTasks.map((task) => task.label)
+      )
+    }
+  })
+
+  return {
+    pending: formatAntennaSummaryGroups(pendingGroups),
+    cleared: formatAntennaSummaryGroups(clearedGroups),
+  }
+}
+
+function addAntennaSummaryGroup(groups, key, antennaLabel, tasks, suffix = '') {
+  if (!groups.has(key)) {
+    groups.set(key, {
+      antennas: [],
+      tasks,
+      suffix,
+    })
+  }
+
+  groups.get(key).antennas.push(antennaLabel)
+}
+
+function formatAntennaSummaryGroups(groups) {
+  return [...groups.values()].map((group, index) => {
+    const antennaLines = chunkAntennaLabels(group.antennas, 6).map((antennas, lineIndex) =>
+      `${lineIndex === 0 ? `${index + 1}. ` : ''}${antennas.join(',')}`
+    )
+
+    return {
+      id: `${index}-${group.antennas.join('-')}-${group.suffix || group.tasks.join('-')}`,
+      antennaLines,
+      suffix: group.suffix,
+      tasks: group.tasks,
+    }
+  })
+}
+
+function chunkAntennaLabels(antennas, size) {
+  const chunks = []
+  for (let index = 0; index < antennas.length; index += size) {
+    chunks.push(antennas.slice(index, index + size))
+  }
+  return chunks
+}
+
+function formatAntennaSummaryText(heading, entries) {
+  if (!entries.length) return ''
+
+  return [
+    heading,
+    ...entries.flatMap((entry) => [
+      `${entry.antennaLines.join('\n')}${entry.suffix ? ` (${entry.suffix})` : ''}`,
+      ...entry.tasks.map((task) => `- ${task}`),
+      '',
+    ]),
+  ].join('\n').trim()
+}
 </script>
 
 <template>
@@ -441,6 +612,14 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
       <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
         <MaterialIcon name="view_column" />
         Add column
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="openAntennaSummaryModal">
+        <MaterialIcon name="summarize" />
+        Antenna summary
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="toggleAllProofTasks">
+        <MaterialIcon :name="areAllProofRowsCollapsed ? 'unfold_more' : 'unfold_less'" />
+        {{ areAllProofRowsCollapsed ? 'Show subtasks' : 'Hide subtasks' }}
       </button>
       <button type="button" class="btn btn-ghost" @click="handleExport">
         <MaterialIcon name="download_for_offline" />
@@ -477,6 +656,7 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
           <StatCard label="Platform level" :value="summary.platformLevel || 0" accent="var(--confirm)" />
           <StatCard label="Ground level" :value="summary.groundLevel || 0" accent="var(--confirm)" />
           <StatCard label="Serial numbers" :value="`${summary.withSerialNumber || 0}/${summary.total || 0}`" :sub="`${summary.otherLevels || 0} other levels`" />
+          <StatCard label="Antenna proof" :value="summary.proofReceived || 0" accent="var(--confirm)" :sub="`${summary.proofTotal || 0} total subtasks`" />
           <div class="box p-4 col gap-3 grow" style="min-width: 320px; flex: 1 1 520px">
             <div class="title-md">Add antenna row</div>
             <div class="row gap-2" style="flex-wrap: wrap">
@@ -593,21 +773,20 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
             </tr>
           </thead>
           <tbody>
+            <template v-for="row in rows" :key="row.id">
             <tr
-              v-for="row in rows"
-              :key="row.id"
-              :style="{
-                borderTop: '1px dashed var(--line)',
-                opacity: draggedRowId === row.id ? 0.6 : 1,
-                background:
-                  dropRowId === row.id && draggedRowId !== row.id
-                    ? 'color-mix(in srgb, var(--paper-2) 75%, white)'
-                    : '',
-              }"
-              @dragover="onRowDragOver(row.id, $event)"
-              @drop="onRowDrop(row.id, $event)"
-              @dragend="clearRowDragState"
-            >
+                :style="{
+                  borderTop: '1px dashed var(--line)',
+                  opacity: draggedRowId === row.id ? 0.6 : 1,
+                  background:
+                    dropRowId === row.id && draggedRowId !== row.id
+                      ? 'color-mix(in srgb, var(--paper-2) 75%, white)'
+                      : '',
+                }"
+                @dragover="onRowDragOver(row.id, $event)"
+                @drop="onRowDrop(row.id, $event)"
+                @dragend="clearRowDragState"
+              >
               <td class="table-cell">
                 <div class="row gap-2" style="align-items: center">
                   <button
@@ -701,6 +880,13 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
               </td>
               <td class="table-cell">
                 <div class="row gap-2" style="flex-wrap: wrap">
+                  <button type="button" class="chip" @click="toggleProofTasks(row.id)">
+                    <MaterialIcon :name="isProofTasksCollapsed(row.id) ? 'expand_more' : 'expand_less'" :size="14" />
+                    {{ isProofTasksCollapsed(row.id) ? 'Show subtasks' : 'Hide subtasks' }}
+                  </button>
+                  <span class="chip chip-neutral">
+                    {{ getProofTaskSummary(row) }}
+                  </span>
                   <button type="button" class="chip" @click="openChangeLogModal(row)">
                     <MaterialIcon name="history" :size="14" />
                     Log
@@ -712,6 +898,31 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
                 </div>
               </td>
             </tr>
+            <tr v-if="!isProofTasksCollapsed(row.id)" class="proof-task-row">
+              <td class="table-cell" :colspan="8 + customColumns.length">
+                <div class="proof-task-panel">
+                  <label
+                    v-for="task in ANTENNA_PROOF_TASKS"
+                    :key="task.id"
+                    class="proof-task-item"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="getProofTasks(row)[task.id] === ANTENNA_PROOF_STATUS.RECEIVED"
+                      @change="handleProofTaskChange(row, task, $event)"
+                    />
+                    <span>{{ task.label }}</span>
+                    <span
+                      class="chip"
+                      :class="getProofTasks(row)[task.id] === ANTENNA_PROOF_STATUS.RECEIVED ? 'chip-confirm' : 'chip-pending'"
+                    >
+                      {{ getProofTasks(row)[task.id] === ANTENNA_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received' }}
+                    </span>
+                  </label>
+                </div>
+              </td>
+            </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -800,6 +1011,109 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 
     <Teleport to="body">
       <div
+        v-if="showAntennaSummaryModal"
+        class="add-site-overlay"
+        @click.self="closeAntennaSummaryModal"
+      >
+        <div class="add-site-modal antenna-summary-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Antenna checklist summary</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeAntennaSummaryModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Antenna Checklist pending summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ antennaProofSummary.pending.length }} groups</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!antennaProofSummary.pending.length"
+                  @click="copyAntennaSummary('pending')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!antennaProofSummary.pending.length" class="box-dash p-4 small">
+              No pending antenna proof subtasks.
+            </div>
+            <div v-else class="box p-4 col antenna-summary-list">
+              <div
+                v-for="entry in antennaProofSummary.pending"
+                :key="entry.id"
+                class="antenna-summary-entry"
+              >
+                <div class="small antenna-summary-title">
+                  <div
+                    v-for="line in entry.antennaLines"
+                    :key="line"
+                    class="antenna-summary-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
+                <div v-for="task in entry.tasks" :key="task" class="small antenna-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-divider" />
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Antenna Checklist cleared summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ antennaProofSummary.cleared.length }} groups</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!antennaProofSummary.cleared.length"
+                  @click="copyAntennaSummary('cleared')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!antennaProofSummary.cleared.length" class="box-dash p-4 small">
+              No cleared antenna proof subtasks.
+            </div>
+            <div v-else class="box p-4 col antenna-summary-list">
+              <div
+                v-for="entry in antennaProofSummary.cleared"
+                :key="entry.id"
+                class="antenna-summary-entry"
+              >
+                <div class="small antenna-summary-title">
+                  <div
+                    v-for="line in entry.antennaLines"
+                    :key="line"
+                    class="antenna-summary-line"
+                  >
+                    {{ line }}
+                  </div>
+                  <span v-if="entry.suffix">({{ entry.suffix }})</span>
+                </div>
+                <div v-for="task in entry.tasks" :key="task" class="small antenna-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-primary" @click="closeAntennaSummaryModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
         v-if="activeChangeLog"
         class="add-site-overlay"
         @click.self="closeChangeLogModal"
@@ -878,6 +1192,43 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
   padding: 24px;
 }
 
+.antenna-summary-modal {
+  max-width: 760px;
+}
+
+.antenna-summary-list {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.antenna-summary-entry {
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.antenna-summary-entry:last-child {
+  border-bottom: 0;
+}
+
+.antenna-summary-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.antenna-summary-line + .antenna-summary-line {
+  margin-top: 2px;
+}
+
+.antenna-summary-task {
+  margin-top: 6px;
+  padding-left: 16px;
+  color: var(--ink-2);
+}
+
+.summary-divider {
+  border-top: 2px dashed var(--line);
+}
+
 .table-head {
   padding: 14px 12px;
   text-align: left;
@@ -935,5 +1286,36 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 .header-remove {
   padding: 2px 8px;
   font-size: 10px;
+}
+
+.proof-task-row {
+  background: color-mix(in srgb, var(--paper-2) 72%, white);
+}
+
+.proof-task-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.proof-task-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  background: var(--paper);
+}
+
+.proof-task-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--confirm);
+}
+
+.proof-task-item span {
+  min-width: 0;
 }
 </style>

@@ -11,6 +11,23 @@ import { useLiveQuery } from './useLiveQuery.js'
 import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 import { getCurrentActivityActor } from './useActivityActor.js'
 
+export const CABLE_CHECKLIST_PROOF_STATUS = {
+  NOT_RECEIVED: 'not-received',
+  RECEIVED: 'received',
+}
+
+export const CABLE_CHECKLIST_PROOF_TASKS = [
+  { id: 'preInstallLocation', label: 'Pre installation location of cable' },
+  { id: 'dcplSptLabelPhotos', label: 'Photos of label at DCPL/SPT ends' },
+  { id: 'antennaLabelPhotos', label: 'Photos of label at antenna end' },
+  {
+    id: 'longCablePhoto',
+    label: 'If cable is longer than 5m, please also take another picture at any where along the cable',
+  },
+  { id: 'equipmentConnectorLabel', label: 'Label photos show equipment/Connector and Cable label together' },
+  { id: 'penetrationPhotos', label: 'Pre and post-penetration photos for cable if applicable' },
+]
+
 export function useCableChecklist(siteId) {
   setupCloudBoardMirror(siteId)
 
@@ -29,6 +46,7 @@ export function useCableChecklist(siteId) {
       siteId,
       order: nextOrder,
       ...normalizeRowValues(row),
+      proofTasks: normalizeProofTasks(row.proofTasks),
       fieldValues: normalizeFieldValues(row.fieldValues),
       changeHistory: [],
       createdAt: new Date().toISOString(),
@@ -97,6 +115,30 @@ export function useCableChecklist(siteId) {
     await persistCloudBoard(siteId, 'cable-checklist-rows-reordered')
   }
 
+  async function setProofTaskStatus(id, taskId, status) {
+    const row = await db.cableChecklists.get(localRecordKey(id))
+    if (!row || !CABLE_CHECKLIST_PROOF_TASKS.some((task) => task.id === taskId)) return
+
+    const proofTasks = normalizeProofTasks(row.proofTasks)
+    const nextStatus = normalizeProofStatus(status)
+    const previousStatus = proofTasks[taskId]
+    if (previousStatus === nextStatus) return
+
+    const result = await db.cableChecklists.update(localRecordKey(id), {
+      proofTasks: {
+        ...proofTasks,
+        [taskId]: nextStatus,
+      },
+      changeHistory: [
+        ...(Array.isArray(row.changeHistory) ? row.changeHistory : []),
+        createProofTaskHistoryEntry(taskId, previousStatus, nextStatus),
+      ],
+      updatedAt: new Date().toISOString(),
+    })
+    await persistCloudBoard(siteId, 'cable-checklist-row-updated')
+    return result
+  }
+
   async function importRows(importedRows) {
     const summary = {
       addedRows: 0,
@@ -119,6 +161,10 @@ export function useCableChecklist(siteId) {
           const nextValues = {
             ...existing,
             ...normalizedRow,
+            proofTasks: {
+              ...normalizeProofTasks(existing.proofTasks),
+              ...normalizeProofTasks(sourceRow.proofTasks),
+            },
             fieldValues: {
               ...(existing.fieldValues || {}),
               ...(normalizedRow.fieldValues || {}),
@@ -136,6 +182,7 @@ export function useCableChecklist(siteId) {
           siteId,
           order: nextOrder,
           ...normalizedRow,
+          proofTasks: normalizeProofTasks(sourceRow.proofTasks),
           changeHistory: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -180,6 +227,7 @@ export function useCableChecklist(siteId) {
     updateRow,
     deleteRow,
     reorderRows,
+    setProofTaskStatus,
     importRows,
     removeCustomColumnValues,
   }
@@ -209,6 +257,11 @@ export function summarizeCableChecklist(rows) {
   const totalLength = rows.reduce((sum, row) => sum + parseCableLength(row.cableLength), 0)
   const withSweepTest = rows.filter((row) => String(row.sweepTestReceived || '').trim()).length
   const otherLevels = total - platformLevel - groundLevel
+  const proofReceived = rows.reduce((totalCount, row) => {
+    const proofTasks = normalizeProofTasks(row.proofTasks)
+    return totalCount + CABLE_CHECKLIST_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED).length
+  }, 0)
+  const proofTotal = total * CABLE_CHECKLIST_PROOF_TASKS.length
 
   return {
     total,
@@ -217,20 +270,22 @@ export function summarizeCableChecklist(rows) {
     totalLength,
     withSweepTest,
     otherLevels,
+    proofReceived,
+    proofTotal,
   }
 }
 
-const CABLE_FIELDS = ['level', 'cableLabel', 'cableId', 'hopCriteria', 'sweepTestReceived', 'remark', 'cableLength']
+const CABLE_FIELDS = ['level', 'cableLabel', 'cableId', 'sweepTestReceived', 'remark', 'cableLength']
 
 function normalizeRowValues(row) {
   return {
     level: String(row.level || '').trim(),
     cableLabel: String(row.cableLabel || '').trim(),
     cableId: String(row.cableId || '').trim(),
-    hopCriteria: String(row.hopCriteria || '').trim(),
     sweepTestReceived: normalizeDateValue(row.sweepTestReceived),
     remark: String(row.remark || '').trim(),
     cableLength: String(row.cableLength || '').trim(),
+    proofTasks: normalizeProofTasks(row.proofTasks),
     fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
@@ -240,13 +295,26 @@ function normalizeRowUpdates(updates) {
   if ('level' in next) next.level = String(next.level || '').trim()
   if ('cableLabel' in next) next.cableLabel = String(next.cableLabel || '').trim()
   if ('cableId' in next) next.cableId = String(next.cableId || '').trim()
-  if ('hopCriteria' in next) next.hopCriteria = String(next.hopCriteria || '').trim()
   if ('sweepTestReceived' in next) next.sweepTestReceived = normalizeDateValue(next.sweepTestReceived)
   if ('remark' in next) next.remark = String(next.remark || '').trim()
   if ('cableLength' in next) next.cableLength = String(next.cableLength || '').trim()
+  if ('proofTasks' in next) next.proofTasks = normalizeProofTasks(next.proofTasks)
   if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+export function normalizeProofTasks(value) {
+  return Object.fromEntries(
+    CABLE_CHECKLIST_PROOF_TASKS.map((task) => [task.id, normalizeProofStatus(value?.[task.id])])
+  )
+}
+
+export function normalizeProofStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === CABLE_CHECKLIST_PROOF_STATUS.RECEIVED || normalized === 'received' || normalized === 'yes'
+    ? CABLE_CHECKLIST_PROOF_STATUS.RECEIVED
+    : CABLE_CHECKLIST_PROOF_STATUS.NOT_RECEIVED
 }
 
 function normalizeFieldValues(value) {
@@ -333,6 +401,18 @@ function createFieldHistoryEntry(field, fromValue, toValue) {
     field,
     fromValue: String(fromValue || '').trim(),
     toValue: String(toValue || '').trim(),
+    ...getCurrentActivityActor(),
+    changedAt: new Date().toISOString(),
+  }
+}
+
+function createProofTaskHistoryEntry(taskId, fromStatus, toStatus) {
+  return {
+    id: createLocalId(),
+    type: 'proof-task',
+    taskId,
+    fromStatus: normalizeProofStatus(fromStatus),
+    toStatus: normalizeProofStatus(toStatus),
     ...getCurrentActivityActor(),
     changedAt: new Date().toISOString(),
   }
