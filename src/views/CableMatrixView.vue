@@ -49,10 +49,12 @@ const newColumnName = ref('')
 const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
 const addColumnError = ref('')
 const collapsedProofRows = ref(new Set())
+const showCableSummaryModal = ref(false)
 const areAllProofRowsCollapsed = computed(() => {
   const currentRows = rows.value || []
   return currentRows.length > 0 && currentRows.every((row) => collapsedProofRows.value.has(row.id))
 })
+const cableProofSummary = computed(() => buildCableProofSummary(rows.value || []))
 
 const title = computed(() => (site.value ? `${site.value.name} cable matrix` : 'Site cable matrix'))
 const subtitle = computed(() => {
@@ -377,6 +379,32 @@ function openAddColumnModal() {
   showAddColumnModal.value = true
 }
 
+function openCableSummaryModal() {
+  showCableSummaryModal.value = true
+}
+
+function closeCableSummaryModal() {
+  showCableSummaryModal.value = false
+}
+
+async function copyCableSummary(type) {
+  const entries = type === 'cleared' ? cableProofSummary.value.cleared : cableProofSummary.value.pending
+  const heading = type === 'cleared' ? 'Cable Matrix cleared summary:' : 'Cable Matrix pending summary:'
+  const text = formatCableSummaryText(heading, entries)
+
+  if (!text.trim()) {
+    showStatus(`No ${type} cable summary to copy.`, 'issue')
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    showStatus(`${type === 'cleared' ? 'Cleared' : 'Pending'} cable summary copied.`)
+  } catch (error) {
+    showStatus('Copy failed. Select the summary text and copy manually.', 'issue')
+  }
+}
+
 function closeAddColumnModal() {
   showAddColumnModal.value = false
   newColumnName.value = ''
@@ -436,6 +464,62 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
     ),
   }))
 }
+
+function buildCableProofSummary(sourceRows) {
+  const pending = []
+  const cleared = []
+
+  ;(sourceRows || []).forEach((row, index) => {
+    const proofTasks = getProofTasks(row)
+    const pendingTasks = CABLE_PROOF_TASKS.filter((task) => proofTasks[task.id] !== CABLE_PROOF_STATUS.RECEIVED)
+    const clearedTasks = CABLE_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_PROOF_STATUS.RECEIVED)
+    const cableNumber = row.cableNumber || row.cableLabel || `Cable row ${index + 1}`
+    const entryNumber = `1.${index + 1}`
+
+    if (pendingTasks.length === CABLE_PROOF_TASKS.length) {
+      pending.push({
+        id: `${row.id}-pending`,
+        title: `${entryNumber} ${cableNumber} (not yet receive)`,
+        tasks: [],
+      })
+    } else if (pendingTasks.length > 0) {
+      pending.push({
+        id: `${row.id}-pending`,
+        title: `${entryNumber} ${cableNumber}`,
+        tasks: pendingTasks.map((task) => `${task.label} (not yet receive)`),
+      })
+    }
+
+    if (clearedTasks.length === CABLE_PROOF_TASKS.length) {
+      cleared.push({
+        id: `${row.id}-cleared`,
+        title: `${entryNumber} ${cableNumber} (received)`,
+        tasks: [],
+      })
+    } else if (clearedTasks.length > 0) {
+      cleared.push({
+        id: `${row.id}-cleared`,
+        title: `${entryNumber} ${cableNumber}`,
+        tasks: clearedTasks.map((task) => `${task.label} (received)`),
+      })
+    }
+  })
+
+  return { pending, cleared }
+}
+
+function formatCableSummaryText(heading, entries) {
+  if (!entries.length) return ''
+
+  return [
+    heading,
+    ...entries.flatMap((entry) => [
+      entry.title,
+      ...entry.tasks.map((task) => `- ${task}`),
+      '',
+    ]),
+  ].join('\n').trim()
+}
 </script>
 
 <template>
@@ -452,6 +536,10 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
       <button type="button" class="btn btn-ghost" @click="openAddColumnModal">
         <MaterialIcon name="view_column" />
         Add column
+      </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="openCableSummaryModal">
+        <MaterialIcon name="summarize" />
+        Cable summary
       </button>
       <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="toggleAllProofTasks">
         <MaterialIcon :name="areAllProofRowsCollapsed ? 'unfold_more' : 'unfold_less'" />
@@ -853,6 +941,91 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 
     <Teleport to="body">
       <div
+        v-if="showCableSummaryModal"
+        class="add-site-overlay"
+        @click.self="closeCableSummaryModal"
+      >
+        <div class="add-site-modal cable-summary-modal box col gap-4">
+          <div class="between" style="align-items: center">
+            <div class="title-md">Cable matrix summary</div>
+            <button type="button" class="btn btn-ghost" style="padding: 4px 8px" @click="closeCableSummaryModal">
+              <MaterialIcon name="close" :size="20" />
+            </button>
+          </div>
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Cable Matrix pending summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ cableProofSummary.pending.length }} cables</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!cableProofSummary.pending.length"
+                  @click="copyCableSummary('pending')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!cableProofSummary.pending.length" class="box-dash p-4 small">
+              No pending cable proof subtasks.
+            </div>
+            <div v-else class="box p-4 col cable-summary-list">
+              <div
+                v-for="entry in cableProofSummary.pending"
+                :key="entry.id"
+                class="cable-summary-entry"
+              >
+                <div class="small" style="color: var(--ink); font-weight: 700">{{ entry.title }}</div>
+                <div v-for="task in entry.tasks" :key="task" class="small cable-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-divider" />
+
+          <div class="col gap-3">
+            <div class="between">
+              <div class="title-md">Cable Matrix cleared summary:</div>
+              <div class="row gap-2" style="align-items: center">
+                <span class="small">{{ cableProofSummary.cleared.length }} cables</span>
+                <button
+                  type="button"
+                  class="chip"
+                  :disabled="!cableProofSummary.cleared.length"
+                  @click="copyCableSummary('cleared')"
+                >
+                  <MaterialIcon name="content_copy" :size="14" />
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div v-if="!cableProofSummary.cleared.length" class="box-dash p-4 small">
+              No cleared cable proof subtasks.
+            </div>
+            <div v-else class="box p-4 col cable-summary-list">
+              <div
+                v-for="entry in cableProofSummary.cleared"
+                :key="entry.id"
+                class="cable-summary-entry"
+              >
+                <div class="small" style="color: var(--ink); font-weight: 700">{{ entry.title }}</div>
+                <div v-for="task in entry.tasks" :key="task" class="small cable-summary-task">- {{ task }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row gap-2" style="justify-content: flex-end">
+            <button type="button" class="btn btn-primary" @click="closeCableSummaryModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
         v-if="activeStatusLog"
         class="add-site-overlay"
         @click.self="closeStatusLogModal"
@@ -924,6 +1097,34 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
   max-height: 90vh;
   overflow-y: auto;
   padding: 24px;
+}
+
+.cable-summary-modal {
+  max-width: 760px;
+}
+
+.cable-summary-list {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.cable-summary-entry {
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.cable-summary-entry:last-child {
+  border-bottom: 0;
+}
+
+.cable-summary-task {
+  margin-top: 6px;
+  padding-left: 16px;
+  color: var(--ink-2);
+}
+
+.summary-divider {
+  border-top: 2px dashed var(--line);
 }
 
 .table-head {
