@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 
+import { CABLE_PROOF_TASKS, normalizeProofTasks } from '../composables/useCableMatrix.js'
 import { normalizeChecklistCustomColumns } from './checklistColumns.js'
 
 const TEMPLATE_HEADERS = [
@@ -22,6 +23,7 @@ export function CABLE_MATRIX_EXPORT_COLS(customColumns = []) {
     { wch: 12 },
     { wch: 14 },
     { wch: 12 },
+    ...CABLE_PROOF_TASKS.map(() => ({ wch: 32 })),
     ...normalizeChecklistCustomColumns(customColumns).map(() => ({ wch: 18 })),
     { wch: 52 },
   ]
@@ -50,18 +52,22 @@ export function downloadCableMatrixExport(rows, siteName = 'site', customColumns
 export function buildCableMatrixExportRows(rows, customColumns = []) {
   const normalizedColumns = normalizeChecklistCustomColumns(customColumns)
   return [
-    [...BASE_EXPORT_HEADERS, ...normalizedColumns.map((column) => column.label), 'Log'],
-    ...(rows || []).map((row) => [
-      row.cableNumber || '',
-      row.cableLabel || '',
-      row.from || '',
-      row.to || '',
-      formatStatus(row.testStatus),
-      formatStatus(row.labelOriginStatus),
-      formatStatus(row.labelEndStatus),
-      ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
-      formatStatusHistory(row.statusHistory),
-    ]),
+    [...BASE_EXPORT_HEADERS, ...CABLE_PROOF_TASKS.map((task) => task.label), ...normalizedColumns.map((column) => column.label), 'Log'],
+    ...(rows || []).map((row) => {
+      const proofTasks = normalizeProofTasks(row.proofTasks)
+      return [
+        row.cableNumber || '',
+        row.cableLabel || '',
+        row.from || '',
+        row.to || '',
+        formatStatus(row.testStatus),
+        formatStatus(row.labelOriginStatus),
+        formatStatus(row.labelEndStatus),
+        ...CABLE_PROOF_TASKS.map((task) => formatProofStatus(proofTasks[task.id])),
+        ...normalizedColumns.map((column) => row.fieldValues?.[column.id] || ''),
+        formatStatusHistory(row.statusHistory),
+      ]
+    }),
   ]
 }
 
@@ -99,6 +105,9 @@ export async function parseCableMatrixSpreadsheet(file) {
   const testIndex = headerRow.findIndex((value) => value === 'test')
   const labelOriginIndex = headerRow.findIndex((value) => value === 'labelorigin')
   const labelEndIndex = headerRow.findIndex((value) => value === 'labelend')
+  const proofTaskIndexes = Object.fromEntries(
+    CABLE_PROOF_TASKS.map((task) => [task.id, headerRow.findIndex((value) => value === normalizeHeader(task.label))])
+  )
   const knownIndexes = new Set([
     cableNumberIndex,
     cableLabelIndex,
@@ -107,6 +116,7 @@ export async function parseCableMatrixSpreadsheet(file) {
     testIndex,
     labelOriginIndex,
     labelEndIndex,
+    ...Object.values(proofTaskIndexes),
     headerRow.findIndex((value) => value === 'log'),
   ])
 
@@ -144,6 +154,9 @@ export async function parseCableMatrixSpreadsheet(file) {
       testStatus: normalizeImportStatus(row[testIndex]),
       labelOriginStatus: normalizeImportStatus(row[labelOriginIndex]),
       labelEndStatus: normalizeImportStatus(row[labelEndIndex]),
+      proofTasks: Object.fromEntries(
+        CABLE_PROOF_TASKS.map((task) => [task.id, normalizeImportProofStatus(row[proofTaskIndexes[task.id]])])
+      ),
       fieldValues: Object.fromEntries(
         customColumns.map((column) => [column.label, toCellText(row[column.index])])
       ),
@@ -171,11 +184,20 @@ function toCellText(value) {
 }
 
 function normalizeImportStatus(value) {
-  return normalizeHeader(value) === 'ok' ? 'ok' : 'no'
+  return normalizeHeader(value) === 'ok' ? 'ok' : 'pending'
 }
 
 function formatStatus(value) {
-  return normalizeImportStatus(value) === 'ok' ? 'OK' : 'No'
+  return normalizeImportStatus(value) === 'ok' ? 'OK' : 'Pending'
+}
+
+function normalizeImportProofStatus(value) {
+  const normalized = normalizeHeader(value)
+  return normalized === 'received' || normalized === 'yes' ? 'received' : 'not-received'
+}
+
+function formatProofStatus(value) {
+  return normalizeImportProofStatus(value) === 'received' ? 'Received' : 'Not received'
 }
 
 function toFileSlug(value) {
@@ -194,6 +216,11 @@ function formatStatusHistory(entries) {
   return entries
     .map((entry) => {
       const changedAt = formatHistoryDate(entry?.changedAt)
+      if (entry?.type === 'proof-task') {
+        const task = CABLE_PROOF_TASKS.find((item) => item.id === entry?.taskId)
+        return `${changedAt}: ${task?.label || 'Cable proof'} ${formatProofStatus(entry?.fromStatus)} -> ${formatProofStatus(entry?.toStatus)}`
+      }
+
       const field = formatField(entry?.field)
       if (entry?.type === 'field') {
         const fromValue = String(entry?.fromValue || '').trim() || 'Blank'

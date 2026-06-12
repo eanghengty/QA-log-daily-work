@@ -12,9 +12,26 @@ import { broadcastTrackerChange, useRealtime } from './useRealtime.js'
 import { getCurrentActivityActor } from './useActivityActor.js'
 
 export const CABLE_CHECK_STATUS = {
-  NO: 'no',
+  PENDING: 'pending',
   OK: 'ok',
 }
+
+export const CABLE_PROOF_STATUS = {
+  NOT_RECEIVED: 'not-received',
+  RECEIVED: 'received',
+}
+
+export const CABLE_PROOF_TASKS = [
+  { id: 'preInstallLocation', label: 'Pre installation location of cable' },
+  { id: 'dcplSptLabelPhotos', label: 'Photos of label at DCPL/SPT ends' },
+  { id: 'antennaLabelPhotos', label: 'Photos of label at antenna end' },
+  {
+    id: 'longCablePhoto',
+    label: 'If cable is longer than 5m, please also take another picture at any where along the cable',
+  },
+  { id: 'equipmentConnectorLabel', label: 'Label photos show equipment/Connector and Cable label together' },
+  { id: 'penetrationPhotos', label: 'Pre and post-penetration photos for cable if applicable' },
+]
 
 export function useCableMatrix(siteId) {
   setupCloudBoardMirror(siteId)
@@ -40,6 +57,7 @@ export function useCableMatrix(siteId) {
       testStatus: normalizeCheckStatus(row.testStatus),
       labelOriginStatus: normalizeCheckStatus(row.labelOriginStatus),
       labelEndStatus: normalizeCheckStatus(row.labelEndStatus),
+      proofTasks: normalizeProofTasks(row.proofTasks),
       fieldValues: normalizeFieldValues(row.fieldValues),
       statusHistory: [],
       createdAt: new Date().toISOString(),
@@ -117,6 +135,30 @@ export function useCableMatrix(siteId) {
       statusHistory: [
         ...(Array.isArray(row.statusHistory) ? row.statusHistory : []),
         createStatusHistoryEntry(field, previousStatus, nextStatus),
+      ],
+      updatedAt: new Date().toISOString(),
+    })
+    await persistCloudBoard(siteId, 'cable-matrix-row-updated')
+    return result
+  }
+
+  async function setProofTaskStatus(id, taskId, status) {
+    const row = await db.cableMatrices.get(localRecordKey(id))
+    if (!row || !CABLE_PROOF_TASKS.some((task) => task.id === taskId)) return
+
+    const proofTasks = normalizeProofTasks(row.proofTasks)
+    const nextStatus = normalizeProofStatus(status)
+    const previousStatus = proofTasks[taskId]
+    if (previousStatus === nextStatus) return
+
+    const result = await db.cableMatrices.update(localRecordKey(id), {
+      proofTasks: {
+        ...proofTasks,
+        [taskId]: nextStatus,
+      },
+      statusHistory: [
+        ...(Array.isArray(row.statusHistory) ? row.statusHistory : []),
+        createProofTaskHistoryEntry(taskId, previousStatus, nextStatus),
       ],
       updatedAt: new Date().toISOString(),
     })
@@ -209,6 +251,7 @@ export function useCableMatrix(siteId) {
     deleteRow,
     reorderRows,
     setRowStatus,
+    setProofTaskStatus,
     importRows,
     removeCustomColumnValues,
   }
@@ -246,6 +289,11 @@ export function summarizeCableMatrix(rows) {
       normalizeCheckStatus(row.labelOriginStatus) === CABLE_CHECK_STATUS.OK &&
       normalizeCheckStatus(row.labelEndStatus) === CABLE_CHECK_STATUS.OK
   ).length
+  const proofReceived = rows.reduce((total, row) => {
+    const proofTasks = normalizeProofTasks(row.proofTasks)
+    return total + CABLE_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_PROOF_STATUS.RECEIVED).length
+  }, 0)
+  const proofTotal = total * CABLE_PROOF_TASKS.length
 
   return {
     total,
@@ -253,13 +301,15 @@ export function summarizeCableMatrix(rows) {
     labelOriginOk,
     labelEndOk,
     fullyChecked,
+    proofReceived,
+    proofTotal,
   }
 }
 
-function normalizeCheckStatus(value) {
+export function normalizeCheckStatus(value) {
   return String(value || '').trim().toLowerCase() === CABLE_CHECK_STATUS.OK
     ? CABLE_CHECK_STATUS.OK
-    : CABLE_CHECK_STATUS.NO
+    : CABLE_CHECK_STATUS.PENDING
 }
 
 function normalizeImportedRow(row) {
@@ -271,6 +321,7 @@ function normalizeImportedRow(row) {
     testStatus: normalizeCheckStatus(row.testStatus),
     labelOriginStatus: normalizeCheckStatus(row.labelOriginStatus),
     labelEndStatus: normalizeCheckStatus(row.labelEndStatus),
+    proofTasks: normalizeProofTasks(row.proofTasks),
     fieldValues: normalizeFieldValues(row.fieldValues),
   }
 }
@@ -285,9 +336,23 @@ function normalizeRowUpdates(updates) {
   if ('testStatus' in next) next.testStatus = normalizeCheckStatus(next.testStatus)
   if ('labelOriginStatus' in next) next.labelOriginStatus = normalizeCheckStatus(next.labelOriginStatus)
   if ('labelEndStatus' in next) next.labelEndStatus = normalizeCheckStatus(next.labelEndStatus)
+  if ('proofTasks' in next) next.proofTasks = normalizeProofTasks(next.proofTasks)
   if ('fieldValues' in next) next.fieldValues = normalizeFieldValues(next.fieldValues)
 
   return next
+}
+
+export function normalizeProofTasks(value) {
+  return Object.fromEntries(
+    CABLE_PROOF_TASKS.map((task) => [task.id, normalizeProofStatus(value?.[task.id])])
+  )
+}
+
+export function normalizeProofStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === CABLE_PROOF_STATUS.RECEIVED || normalized === 'received' || normalized === 'yes'
+    ? CABLE_PROOF_STATUS.RECEIVED
+    : CABLE_PROOF_STATUS.NOT_RECEIVED
 }
 
 function normalizeFieldValues(value) {
@@ -324,6 +389,18 @@ function createFieldHistoryEntry(field, fromValue, toValue) {
     field,
     fromValue: String(fromValue || '').trim(),
     toValue: String(toValue || '').trim(),
+    ...getCurrentActivityActor(),
+    changedAt: new Date().toISOString(),
+  }
+}
+
+function createProofTaskHistoryEntry(taskId, fromStatus, toStatus) {
+  return {
+    id: createLocalId(),
+    type: 'proof-task',
+    taskId,
+    fromStatus: normalizeProofStatus(fromStatus),
+    toStatus: normalizeProofStatus(toStatus),
     ...getCurrentActivityActor(),
     changedAt: new Date().toISOString(),
   }

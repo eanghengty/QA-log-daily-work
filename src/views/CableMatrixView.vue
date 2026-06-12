@@ -2,7 +2,14 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSites } from '../composables/useSites.js'
-import { CABLE_CHECK_STATUS, useCableMatrix } from '../composables/useCableMatrix.js'
+import {
+  CABLE_CHECK_STATUS,
+  CABLE_PROOF_STATUS,
+  CABLE_PROOF_TASKS,
+  normalizeCheckStatus,
+  normalizeProofTasks,
+  useCableMatrix,
+} from '../composables/useCableMatrix.js'
 import { useCableMatrixLayout } from '../composables/useCableMatrixLayout.js'
 import { useActivityLog } from '../composables/useActivityLog.js'
 import { getActivityActorLabel } from '../composables/useActivityActor.js'
@@ -23,7 +30,7 @@ const siteId = route.params.id
 
 const { useSiteById } = useSites()
 const { data: site } = useSiteById(siteId)
-const { rows, summary, addRow, updateRow, deleteRow, reorderRows, setRowStatus, importRows, removeCustomColumnValues } = useCableMatrix(siteId)
+const { rows, summary, addRow, updateRow, deleteRow, reorderRows, setRowStatus, setProofTaskStatus, importRows, removeCustomColumnValues } = useCableMatrix(siteId)
 const { customColumns, addCustomColumn, removeCustomColumn, mergeImportedCustomColumns } = useCableMatrixLayout(siteId)
 const { logAction } = useActivityLog()
 
@@ -41,6 +48,11 @@ const showAddColumnModal = ref(false)
 const newColumnName = ref('')
 const newColumnType = ref(CHECKLIST_COLUMN_TYPE.TEXT)
 const addColumnError = ref('')
+const collapsedProofRows = ref(new Set())
+const areAllProofRowsCollapsed = computed(() => {
+  const currentRows = rows.value || []
+  return currentRows.length > 0 && currentRows.every((row) => collapsedProofRows.value.has(row.id))
+})
 
 const title = computed(() => (site.value ? `${site.value.name} cable matrix` : 'Site cable matrix'))
 const subtitle = computed(() => {
@@ -63,9 +75,10 @@ function createEmptyRow() {
     cableLabel: '',
     from: '',
     to: '',
-    testStatus: CABLE_CHECK_STATUS.NO,
-    labelOriginStatus: CABLE_CHECK_STATUS.NO,
-    labelEndStatus: CABLE_CHECK_STATUS.NO,
+    testStatus: CABLE_CHECK_STATUS.PENDING,
+    labelOriginStatus: CABLE_CHECK_STATUS.PENDING,
+    labelEndStatus: CABLE_CHECK_STATUS.PENDING,
+    proofTasks: normalizeProofTasks(),
     fieldValues: {},
   }
 }
@@ -166,6 +179,42 @@ async function handleStatusChange(row, field, event) {
   await setRowStatus(row.id, field, value)
 }
 
+async function handleProofTaskChange(row, task, event) {
+  const status = event.target.checked ? CABLE_PROOF_STATUS.RECEIVED : CABLE_PROOF_STATUS.NOT_RECEIVED
+  await setProofTaskStatus(row.id, task.id, status)
+}
+
+function toggleProofTasks(rowId) {
+  const next = new Set(collapsedProofRows.value)
+  if (next.has(rowId)) {
+    next.delete(rowId)
+  } else {
+    next.add(rowId)
+  }
+  collapsedProofRows.value = next
+}
+
+function toggleAllProofTasks() {
+  const currentRows = rows.value || []
+  collapsedProofRows.value = areAllProofRowsCollapsed.value
+    ? new Set()
+    : new Set(currentRows.map((row) => row.id))
+}
+
+function isProofTasksCollapsed(rowId) {
+  return collapsedProofRows.value.has(rowId)
+}
+
+function getProofTasks(row) {
+  return normalizeProofTasks(row?.proofTasks)
+}
+
+function getProofTaskSummary(row) {
+  const proofTasks = getProofTasks(row)
+  const received = CABLE_PROOF_TASKS.filter((task) => proofTasks[task.id] === CABLE_PROOF_STATUS.RECEIVED).length
+  return `${received}/${CABLE_PROOF_TASKS.length} received`
+}
+
 async function removeRow(row) {
   await deleteRow(row.id)
   await logAction('Cable matrix row deleted', `${siteId} - ${row.cableNumber || row.cableLabel}`)
@@ -173,11 +222,15 @@ async function removeRow(row) {
 }
 
 function getStatusLabel(status) {
-  return status === CABLE_CHECK_STATUS.OK ? 'OK' : 'No'
+  return status === CABLE_CHECK_STATUS.OK ? 'OK' : 'Pending'
 }
 
 function getSelectClass(status) {
-  return status === CABLE_CHECK_STATUS.OK ? 'status-ok' : 'status-no'
+  return getCheckStatus(status) === CABLE_CHECK_STATUS.OK ? 'status-ok' : 'status-pending'
+}
+
+function getCheckStatus(status) {
+  return normalizeCheckStatus(status)
 }
 
 function openStatusLogModal(row) {
@@ -205,11 +258,20 @@ function getStatusFieldLabel(field) {
 }
 
 function getStatusLogLabel(entry) {
+  if (entry?.type === 'proof-task') {
+    const task = CABLE_PROOF_TASKS.find((item) => item.id === entry.taskId)
+    return `${task?.label || 'Cable proof'}: ${getProofStatusLabel(entry?.fromStatus)} -> ${getProofStatusLabel(entry?.toStatus)}`
+  }
+
   if (entry?.type === 'field') {
     return `${getStatusFieldLabel(entry?.field)}: ${entry?.fromValue || 'Blank'} -> ${entry?.toValue || 'Blank'}`
   }
 
   return `${getStatusFieldLabel(entry?.field)}: ${getStatusLabel(entry?.fromStatus)} -> ${getStatusLabel(entry?.toStatus)}`
+}
+
+function getProofStatusLabel(status) {
+  return status === CABLE_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received'
 }
 
 function formatStatusLogDate(value) {
@@ -391,6 +453,10 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
         <MaterialIcon name="view_column" />
         Add column
       </button>
+      <button type="button" class="btn btn-ghost" :disabled="!rows?.length" @click="toggleAllProofTasks">
+        <MaterialIcon :name="areAllProofRowsCollapsed ? 'unfold_more' : 'unfold_less'" />
+        {{ areAllProofRowsCollapsed ? 'Show subtasks' : 'Hide subtasks' }}
+      </button>
       <button type="button" class="btn btn-ghost" @click="handleExport">
         <MaterialIcon name="download_for_offline" />
         Export cable matrix
@@ -426,6 +492,7 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
           <StatCard label="Test OK" :value="summary.testOk || 0" accent="var(--confirm)" />
           <StatCard label="Label origin OK" :value="summary.labelOriginOk || 0" accent="var(--confirm)" />
           <StatCard label="Label end OK" :value="summary.labelEndOk || 0" accent="var(--confirm)" :sub="`${summary.fullyChecked || 0} fully checked`" />
+          <StatCard label="Cable proof" :value="summary.proofReceived || 0" accent="var(--confirm)" :sub="`${summary.proofTotal || 0} total subtasks`" />
           <div class="box p-4 col gap-3 grow" style="min-width: 320px; flex: 1 1 420px">
             <div class="title-md">Add cable row</div>
             <div class="row gap-2" style="flex-wrap: wrap">
@@ -460,15 +527,15 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
             </div>
             <div class="row gap-2" style="flex-wrap: wrap">
               <select v-model="newRow.testStatus" class="field">
-                <option :value="CABLE_CHECK_STATUS.NO">No</option>
+                <option :value="CABLE_CHECK_STATUS.PENDING">Pending</option>
                 <option :value="CABLE_CHECK_STATUS.OK">OK</option>
               </select>
               <select v-model="newRow.labelOriginStatus" class="field">
-                <option :value="CABLE_CHECK_STATUS.NO">No</option>
+                <option :value="CABLE_CHECK_STATUS.PENDING">Pending</option>
                 <option :value="CABLE_CHECK_STATUS.OK">OK</option>
               </select>
               <select v-model="newRow.labelEndStatus" class="field">
-                <option :value="CABLE_CHECK_STATUS.NO">No</option>
+                <option :value="CABLE_CHECK_STATUS.PENDING">Pending</option>
                 <option :value="CABLE_CHECK_STATUS.OK">OK</option>
               </select>
             </div>
@@ -537,136 +604,167 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="row in rows"
-              :key="row.id"
-              :style="{
-                borderTop: '1px dashed var(--line)',
-                opacity: draggedRowId === row.id ? 0.6 : 1,
-                background:
-                  dropRowId === row.id && draggedRowId !== row.id
-                    ? 'color-mix(in srgb, var(--paper-2) 75%, white)'
-                    : '',
-              }"
-              @dragover="onRowDragOver(row.id, $event)"
-              @drop="onRowDrop(row.id, $event)"
-              @dragend="clearRowDragState"
-            >
-              <td class="table-cell">
-                <div class="row gap-2" style="align-items: center">
-                  <button
-                    type="button"
-                    class="chip drag-chip"
-                    draggable="true"
-                    title="Drag to reorder"
-                    @dragstart="startRowDrag(row.id, $event)"
-                  >
-                    <MaterialIcon name="drag_indicator" :size="14" />
-                    Move
-                  </button>
+            <template v-for="row in rows" :key="row.id">
+              <tr
+                :style="{
+                  borderTop: '1px dashed var(--line)',
+                  opacity: draggedRowId === row.id ? 0.6 : 1,
+                  background:
+                    dropRowId === row.id && draggedRowId !== row.id
+                      ? 'color-mix(in srgb, var(--paper-2) 75%, white)'
+                      : '',
+                }"
+                @dragover="onRowDragOver(row.id, $event)"
+                @drop="onRowDrop(row.id, $event)"
+                @dragend="clearRowDragState"
+              >
+                <td class="table-cell">
+                  <div class="row gap-2" style="align-items: center">
+                    <button
+                      type="button"
+                      class="chip drag-chip"
+                      draggable="true"
+                      title="Drag to reorder"
+                      @dragstart="startRowDrag(row.id, $event)"
+                    >
+                      <MaterialIcon name="drag_indicator" :size="14" />
+                      Move
+                    </button>
+                    <input
+                      class="field cable-number-field"
+                      type="text"
+                      :value="row.cableNumber || ''"
+                      @change="handleTextChange(row, 'cableNumber', $event)"
+                    />
+                  </div>
+                </td>
+                <td class="table-cell">
                   <input
-                    class="field cable-number-field"
+                    class="field cable-label-field"
                     type="text"
-                    :value="row.cableNumber || ''"
-                    @change="handleTextChange(row, 'cableNumber', $event)"
+                    :value="row.cableLabel || ''"
+                    @change="handleTextChange(row, 'cableLabel', $event)"
                   />
-                </div>
-              </td>
-              <td class="table-cell">
-                <input
-                  class="field cable-label-field"
-                  type="text"
-                  :value="row.cableLabel || ''"
-                  @change="handleTextChange(row, 'cableLabel', $event)"
-                />
-              </td>
-              <td class="table-cell">
-                <input
-                  class="field cable-end-field"
-                  type="text"
-                  :value="row.from || ''"
-                  @change="handleTextChange(row, 'from', $event)"
-                />
-              </td>
-              <td class="table-cell">
-                <input
-                  class="field cable-end-field"
-                  type="text"
-                  :value="row.to || ''"
-                  @change="handleTextChange(row, 'to', $event)"
-                />
-              </td>
-              <td class="table-cell">
-                <select
-                  class="field status-select"
-                  :class="getSelectClass(row.testStatus)"
-                  :value="row.testStatus"
-                  @change="handleStatusChange(row, 'testStatus', $event)"
-                >
-                  <option :value="CABLE_CHECK_STATUS.NO">No</option>
-                  <option :value="CABLE_CHECK_STATUS.OK">OK</option>
-                </select>
-              </td>
-              <td class="table-cell">
-                <select
-                  class="field status-select"
-                  :class="getSelectClass(row.labelOriginStatus)"
-                  :value="row.labelOriginStatus"
-                  @change="handleStatusChange(row, 'labelOriginStatus', $event)"
-                >
-                  <option :value="CABLE_CHECK_STATUS.NO">No</option>
-                  <option :value="CABLE_CHECK_STATUS.OK">OK</option>
-                </select>
-              </td>
-              <td class="table-cell">
-                <select
-                  class="field status-select"
-                  :class="getSelectClass(row.labelEndStatus)"
-                  :value="row.labelEndStatus"
-                  @change="handleStatusChange(row, 'labelEndStatus', $event)"
-                >
-                  <option :value="CABLE_CHECK_STATUS.NO">No</option>
-                  <option :value="CABLE_CHECK_STATUS.OK">OK</option>
-                </select>
-              </td>
-              <td v-for="column in customColumns" :key="column.id" class="table-cell">
-                <input
-                  v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
-                  class="field"
-                  type="text"
-                  :value="getCustomFieldValue(row.fieldValues, column)"
-                  :placeholder="column.label"
-                  @change="handleCustomFieldChange(row, column, $event)"
-                />
-                <input
-                  v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
-                  class="field"
-                  type="number"
-                  :value="getCustomFieldValue(row.fieldValues, column)"
-                  :placeholder="column.label"
-                  @change="handleCustomFieldChange(row, column, $event)"
-                />
-                <input
-                  v-else
-                  class="field"
-                  type="date"
-                  :value="getCustomFieldValue(row.fieldValues, column)"
-                  @change="handleCustomFieldChange(row, column, $event)"
-                />
-              </td>
-              <td class="table-cell">
-                <div class="row gap-2" style="flex-wrap: wrap">
-                  <button type="button" class="chip" @click="openStatusLogModal(row)">
-                    <MaterialIcon name="history" :size="14" />
-                    Log
-                  </button>
-                  <button type="button" class="chip" @click="removeRow(row)">
-                    <MaterialIcon name="delete" :size="14" />
-                    Remove
-                  </button>
-                </div>
-              </td>
-            </tr>
+                </td>
+                <td class="table-cell">
+                  <input
+                    class="field cable-end-field"
+                    type="text"
+                    :value="row.from || ''"
+                    @change="handleTextChange(row, 'from', $event)"
+                  />
+                </td>
+                <td class="table-cell">
+                  <input
+                    class="field cable-end-field"
+                    type="text"
+                    :value="row.to || ''"
+                    @change="handleTextChange(row, 'to', $event)"
+                  />
+                </td>
+                <td class="table-cell">
+                  <select
+                    class="field status-select"
+                    :class="getSelectClass(row.testStatus)"
+                    :value="getCheckStatus(row.testStatus)"
+                    @change="handleStatusChange(row, 'testStatus', $event)"
+                  >
+                    <option :value="CABLE_CHECK_STATUS.PENDING">Pending</option>
+                    <option :value="CABLE_CHECK_STATUS.OK">OK</option>
+                  </select>
+                </td>
+                <td class="table-cell">
+                  <select
+                    class="field status-select"
+                    :class="getSelectClass(row.labelOriginStatus)"
+                    :value="getCheckStatus(row.labelOriginStatus)"
+                    @change="handleStatusChange(row, 'labelOriginStatus', $event)"
+                  >
+                    <option :value="CABLE_CHECK_STATUS.PENDING">Pending</option>
+                    <option :value="CABLE_CHECK_STATUS.OK">OK</option>
+                  </select>
+                </td>
+                <td class="table-cell">
+                  <select
+                    class="field status-select"
+                    :class="getSelectClass(row.labelEndStatus)"
+                    :value="getCheckStatus(row.labelEndStatus)"
+                    @change="handleStatusChange(row, 'labelEndStatus', $event)"
+                  >
+                    <option :value="CABLE_CHECK_STATUS.PENDING">Pending</option>
+                    <option :value="CABLE_CHECK_STATUS.OK">OK</option>
+                  </select>
+                </td>
+                <td v-for="column in customColumns" :key="column.id" class="table-cell">
+                  <input
+                    v-if="column.type === CHECKLIST_COLUMN_TYPE.TEXT"
+                    class="field"
+                    type="text"
+                    :value="getCustomFieldValue(row.fieldValues, column)"
+                    :placeholder="column.label"
+                    @change="handleCustomFieldChange(row, column, $event)"
+                  />
+                  <input
+                    v-else-if="column.type === CHECKLIST_COLUMN_TYPE.NUMBER"
+                    class="field"
+                    type="number"
+                    :value="getCustomFieldValue(row.fieldValues, column)"
+                    :placeholder="column.label"
+                    @change="handleCustomFieldChange(row, column, $event)"
+                  />
+                  <input
+                    v-else
+                    class="field"
+                    type="date"
+                    :value="getCustomFieldValue(row.fieldValues, column)"
+                    @change="handleCustomFieldChange(row, column, $event)"
+                  />
+                </td>
+                <td class="table-cell">
+                  <div class="row gap-2" style="flex-wrap: wrap">
+                    <button type="button" class="chip" @click="toggleProofTasks(row.id)">
+                      <MaterialIcon :name="isProofTasksCollapsed(row.id) ? 'expand_more' : 'expand_less'" :size="14" />
+                      {{ isProofTasksCollapsed(row.id) ? 'Show subtasks' : 'Hide subtasks' }}
+                    </button>
+                    <span class="chip chip-neutral">
+                      {{ getProofTaskSummary(row) }}
+                    </span>
+                    <button type="button" class="chip" @click="openStatusLogModal(row)">
+                      <MaterialIcon name="history" :size="14" />
+                      Log
+                    </button>
+                    <button type="button" class="chip" @click="removeRow(row)">
+                      <MaterialIcon name="delete" :size="14" />
+                      Remove
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!isProofTasksCollapsed(row.id)" class="proof-task-row">
+                <td class="table-cell" :colspan="8 + customColumns.length">
+                  <div class="proof-task-panel">
+                    <label
+                      v-for="task in CABLE_PROOF_TASKS"
+                      :key="task.id"
+                      class="proof-task-item"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="getProofTasks(row)[task.id] === CABLE_PROOF_STATUS.RECEIVED"
+                        @change="handleProofTaskChange(row, task, $event)"
+                      />
+                      <span>{{ task.label }}</span>
+                      <span
+                        class="chip"
+                        :class="getProofTasks(row)[task.id] === CABLE_PROOF_STATUS.RECEIVED ? 'chip-confirm' : 'chip-pending'"
+                      >
+                        {{ getProofTasks(row)[task.id] === CABLE_PROOF_STATUS.RECEIVED ? 'Received' : 'Not received' }}
+                      </span>
+                    </label>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -866,7 +964,7 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
   border-width: 2px;
 }
 
-.status-no {
+.status-pending {
   background: color-mix(in srgb, var(--pending) 18%, white);
   border-color: var(--pending);
   color: color-mix(in srgb, var(--pending) 72%, black);
@@ -888,5 +986,36 @@ function remapImportedRowFieldValues(sourceRows, sourceColumns, targetColumns) {
 .header-remove {
   padding: 2px 8px;
   font-size: 10px;
+}
+
+.proof-task-row {
+  background: color-mix(in srgb, var(--paper-2) 72%, white);
+}
+
+.proof-task-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.proof-task-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  background: var(--paper);
+}
+
+.proof-task-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--confirm);
+}
+
+.proof-task-item span {
+  min-width: 0;
 }
 </style>
