@@ -39,10 +39,12 @@ const {
   renameSubItem,
   setSubItemStatus,
   setSubItemComment,
+  setSubItemChecking,
   setSubItemFieldValue,
   addChildSubItem,
   renameChildSubItem,
   setChildSubItemStatus,
+  setChildSubItemChecking,
   deleteChildSubItem,
   deleteSubItem,
   importChecklistGroups,
@@ -293,6 +295,15 @@ async function toggleNotApplicable(checklistId, item) {
   await setSubItemStatus(checklistId, item.id, nextStatus)
 }
 
+async function toggleSubItemChecking(checklistId, item) {
+  const nextCheckingState = !item.isChecking
+  await setSubItemChecking(checklistId, item.id, nextCheckingState)
+  await logAction(
+    nextCheckingState ? 'Checklist item flagged for checking' : 'Checklist item unflagged from checking',
+    `${siteId} - ${item.title}`
+  )
+}
+
 async function handleNestedSubItemRename(checklistId, item, event) {
   const nextTitle = event.target.value.trim()
   if (!nextTitle) {
@@ -315,6 +326,15 @@ async function toggleNestedNotApplicable(checklistId, item) {
   const nextStatus =
     item.status === CHECKLIST_STATUS.NA ? CHECKLIST_STATUS.TODO : CHECKLIST_STATUS.NA
   await setChildSubItemStatus(checklistId, item.id, item.id, nextStatus)
+}
+
+async function toggleNestedChecking(checklistId, item) {
+  const nextCheckingState = !item.isChecking
+  await setChildSubItemChecking(checklistId, item.id, item.id, nextCheckingState)
+  await logAction(
+    nextCheckingState ? 'Checklist nested item flagged for checking' : 'Checklist nested item unflagged from checking',
+    `${siteId} - ${item.title}`
+  )
 }
 
 async function removeSubItem(checklistId, item) {
@@ -1037,6 +1057,7 @@ function formatChecklistSummaryText(heading, entries) {
                   v-for="item in checklist.items"
                   :key="item.id"
                   class="box-soft p-3 col gap-2"
+                  :class="{ 'is-checking': item.isChecking }"
                 >
                   <div class="checklist-grid checklist-row" :style="checklistTableStyle">
                     <div class="small" style="color: var(--ink)">{{ checklist.title }}</div>
@@ -1064,6 +1085,15 @@ function formatChecklistSummaryText(heading, entries) {
                         />
                         {{ getStatusLabel(item.status) }}
                       </span>
+                      <button
+                        type="button"
+                        class="chip"
+                        :class="item.isChecking ? 'chip-checking' : 'chip-neutral'"
+                        @click="toggleSubItemChecking(checklist.id, item)"
+                      >
+                        <MaterialIcon name="flag" :size="14" />
+                        {{ item.isChecking ? 'Under checking' : 'Flag checking' }}
+                      </button>
                       <button
                         type="button"
                         class="chip"
@@ -1129,6 +1159,7 @@ function formatChecklistSummaryText(heading, entries) {
                     @rename="(targetItem, event) => handleNestedSubItemRename(checklist.id, targetItem, event)"
                     @toggle-done="(targetItem) => toggleNestedDone(checklist.id, targetItem)"
                     @toggle-na="(targetItem) => toggleNestedNotApplicable(checklist.id, targetItem)"
+                    @toggle-checking="(targetItem) => toggleNestedChecking(checklist.id, targetItem)"
                     @open-log="(targetItem) => openNestedStatusLogModal(checklist, targetItem)"
                     @remove="(targetItem) => removeNestedSubItem(checklist.id, targetItem)"
                     @update-draft="updateNestedDraft"
@@ -1621,6 +1652,17 @@ function formatChecklistSummaryText(heading, entries) {
 
 .checklist-row {
   align-items: center;
+}
+
+.is-checking {
+  border-color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 12%, var(--paper));
+}
+
+.chip-checking {
+  background: color-mix(in srgb, var(--pending) 22%, white);
+  border-color: var(--pending);
+  color: color-mix(in srgb, var(--pending) 68%, black);
 }
 
 .header-cell {

@@ -33,6 +33,7 @@ const emit = defineEmits([
   'rename',
   'toggle-done',
   'toggle-na',
+  'toggle-checking',
   'open-log',
   'remove',
   'update-draft',
@@ -57,6 +58,7 @@ function getDraftValue(draftTitles, checklistId, itemId) {
       v-for="item in items"
       :key="item.id"
       class="box-dash p-3 col gap-2 nested-subtask"
+      :class="{ 'is-checking': item.isChecking }"
       :style="{ '--nested-depth': parentDepth }"
     >
       <div class="nested-subtask-row">
@@ -82,6 +84,15 @@ function getDraftValue(draftTitles, checklistId, itemId) {
             />
             {{ statusLabel(item.status) }}
           </span>
+          <button
+            type="button"
+            class="chip"
+            :class="item.isChecking ? 'chip-checking' : 'chip-neutral'"
+            @click="emit('toggle-checking', item)"
+          >
+            <MaterialIcon name="flag" :size="14" />
+            {{ item.isChecking ? 'Under checking' : 'Flag checking' }}
+          </button>
           <button
             type="button"
             class="chip"
@@ -116,6 +127,7 @@ function getDraftValue(draftTitles, checklistId, itemId) {
         @rename="(...args) => emit('rename', ...args)"
         @toggle-done="(...args) => emit('toggle-done', ...args)"
         @toggle-na="(...args) => emit('toggle-na', ...args)"
+        @toggle-checking="(...args) => emit('toggle-checking', ...args)"
         @open-log="(...args) => emit('open-log', ...args)"
         @remove="(...args) => emit('remove', ...args)"
         @update-draft="(...args) => emit('update-draft', ...args)"
@@ -151,6 +163,17 @@ function getDraftValue(draftTitles, checklistId, itemId) {
   grid-template-columns: minmax(220px, 1fr) minmax(180px, auto) minmax(130px, auto);
   gap: 12px;
   align-items: center;
+}
+
+.nested-subtask.is-checking {
+  border-color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 12%, var(--paper));
+}
+
+.chip-checking {
+  background: color-mix(in srgb, var(--pending) 22%, white);
+  border-color: var(--pending);
+  color: color-mix(in srgb, var(--pending) 68%, black);
 }
 
 .nested-subtask-add {

@@ -138,6 +138,12 @@ export function useChecklists(siteId) {
     })
   }
 
+  async function setSubItemChecking(checklistId, itemId, isChecking) {
+    return await updateSubItem(checklistId, itemId, {
+      isChecking: Boolean(isChecking),
+    })
+  }
+
   async function addChildSubItem(checklistId, itemId, title) {
     const checklist = await db.checklists.get(localRecordKey(checklistId))
     if (!checklist) return
@@ -177,6 +183,12 @@ export function useChecklists(siteId) {
     })
 
     return await updateChecklist(checklist.id, { items })
+  }
+
+  async function setChildSubItemChecking(checklistId, itemId, childItemId, isChecking) {
+    return await updateChildSubItem(checklistId, itemId, childItemId, {
+      isChecking: Boolean(isChecking),
+    })
   }
 
   async function updateChildSubItem(checklistId, itemId, childItemId, updates) {
@@ -263,6 +275,7 @@ export function useChecklists(siteId) {
               title: item.title,
               status: normalizeStatus(item.status),
               comment: String(item.comment || '').trim(),
+              isChecking: Boolean(item.isChecking),
               statusHistory: [],
               fieldValues: normalizeItemFieldValues(item.fieldValues, normalizedCustomColumns),
               childItems: normalizeImportedChildItems(item.childItems, normalizedCustomColumns),
@@ -294,6 +307,7 @@ export function useChecklists(siteId) {
             title: item.title,
             status: normalizeStatus(item.status),
             comment: String(item.comment || '').trim(),
+            isChecking: Boolean(item.isChecking),
             statusHistory: [],
             fieldValues: normalizeItemFieldValues(item.fieldValues, normalizedCustomColumns),
             childItems: normalizeImportedChildItems(item.childItems, normalizedCustomColumns),
@@ -356,6 +370,7 @@ export function useChecklists(siteId) {
         title: item.title,
         status: item.status || CHECKLIST_STATUS.TODO,
         comment: item.comment || '',
+        isChecking: Boolean(item.isChecking),
         statusHistory: [],
         fieldValues: { ...(item.fieldValues || {}) },
         childItems: cloneChildItems(item.childItems),
@@ -407,10 +422,12 @@ export function useChecklists(siteId) {
     renameSubItem,
     setSubItemStatus,
     setSubItemComment,
+    setSubItemChecking,
     setSubItemFieldValue,
     addChildSubItem,
     renameChildSubItem,
     setChildSubItemStatus,
+    setChildSubItemChecking,
     deleteChildSubItem,
     deleteSubItem,
     importChecklistGroups,
@@ -567,6 +584,7 @@ function uniqueItems(items) {
       title,
       status: normalizeStatus(item?.status),
       comment: String(item?.comment || '').trim(),
+      isChecking: Boolean(item?.isChecking),
       fieldValues: { ...(item?.fieldValues || {}) },
       childItems: Array.isArray(item?.childItems) ? item.childItems : [],
     })
@@ -602,6 +620,7 @@ function cloneChildItems(childItems) {
     id: createItemId(),
     title: childItem.title || '',
     status: normalizeStatus(childItem.status),
+    isChecking: Boolean(childItem.isChecking),
     statusHistory: [],
     childItems: cloneChildItems(childItem.childItems),
   }))
@@ -613,6 +632,7 @@ function normalizeImportedChildItems(childItems, customColumns) {
     title: String(childItem?.title || '').trim(),
     status: normalizeStatus(childItem?.status),
     comment: String(childItem?.comment || '').trim(),
+    isChecking: Boolean(childItem?.isChecking),
     statusHistory: [],
     fieldValues: normalizeItemFieldValues(childItem?.fieldValues, customColumns),
     childItems: normalizeImportedChildItems(childItem?.childItems, customColumns),
